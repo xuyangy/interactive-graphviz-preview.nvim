@@ -4,7 +4,7 @@ baseline_commit: be45ef02c8cef67c020ef9ebd1c628bdb417e62f
 
 # Story 1.3: Message protocol and WebSocket relay
 
-Status: review
+Status: done
 
 Created: 2026-06-03T18:05:00+0200
 Story Key: 1-3-message-protocol-and-websocket-relay
@@ -72,6 +72,15 @@ so that all three tiers share a single, contract-tested communication spine.
   - [x] **Unknown-inbound test:** sending an unknown/garbage WS frame is logged+ignored and does not break the connection or other subscribers. [Source: architecture.md#Communication Patterns lines 486-488]
   - [x] **`sessions.ts` unit test:** extend/add subscribe/unsubscribe coverage (empty-set init, idempotent unsubscribe, `size` unaffected by subscriber count). [Source: 1-2 sessions.test.ts]
   - [x] Wire the new Bun specs into CI: the existing `Bun tests` step already runs `bun test server`, so co-locating under `server/` auto-includes them. Add no new Lua integration spec (the contract is exercised Bun-side); confirm CI stays green. [Source: ci.yml lines 38-39]
+
+### Review Findings
+
+Adversarial code review (2026-06-03, three layers: Blind Hunter, Edge Case Hunter, Acceptance Auditor). 2 patch / 1 defer / 3 dismiss.
+
+- [x] [Review][Patch] Re-`hello` cross-session subscription leak (High) [server/server.ts:114] — a second valid `hello` with a different `sessionId` overwrote `ws.data.sessionId` without unsubscribing from the prior session, leaving the socket in the old session's `subscribers` set so it kept receiving that session's `render`s — a latent violation of AC1 "never across sessions." Fixed: `hello` now `unsubscribe`s any prior session before subscribing the new one. Added a `relay.test.ts` regression test ("re-hello to a new session drops the prior subscription").
+- [x] [Review][Patch] False-confidence close test (Med) [server/relay.test.ts] — the original "close handler removes the socket" test sent a render to an already-closed socket and asserted no receipt, which passes even if `unsubscribe` were a no-op (a closed socket receives nothing regardless). Strengthened: a co-session peer `b` stays connected and must still receive exactly one frame after `a` closes, proving the broadcast loop survived `a`'s removal from the set rather than relying on a dead socket receiving nothing.
+- [x] [Review][Defer] `frontend/render.ts` orphaned scaffold [frontend/render.ts] — deferred, pre-existing scaffold dead code (main.ts dropped its import this story); remove during Story 1.4. Logged in deferred-work.md.
+- Dismissed (3): `__igEnvelopes` debug global in `main.ts` (intentional, documented debug seam, scope-appropriate); `Number(sessionId)` can emit `null` sessionId on a malformed URL (correctly rejected by the token/session gate — malformed input); non-constant-time token compare (UUID over loopback, explicitly "cheap now" per architecture Security).
 
 ## Dev Notes
 
@@ -240,10 +249,10 @@ Commands run (all from repo root):
 
 ### File List
 
-- server/server.ts (modified)
+- server/server.ts (modified; review fix — re-hello unsubscribe guard)
 - server/sessions.ts (modified)
 - server/static.ts (modified)
-- server/relay.test.ts (new)
+- server/relay.test.ts (new; review — added re-hello isolation test, strengthened close test)
 - server/sessions.test.ts (modified)
 - frontend/ws.ts (modified)
 - frontend/main.ts (modified)
@@ -254,3 +263,4 @@ Commands run (all from repo root):
 
 - 2026-06-03: Created Story 1.3 context (message protocol + WebSocket relay). Status → ready-for-dev.
 - 2026-06-03: Implemented the message-protocol + WebSocket relay spine — static HTTP serving, WS upgrade + token-gated `hello`/`ack`/unknown handling, per-session `render` fan-out, `sessions.ts` subscriber set, real frontend WS client; added contract/round-trip + isolation + token-reject + unknown-frame tests (bun test server: 27 pass). Status → review.
+- 2026-06-03: Code review (3 adversarial layers): 2 patch / 1 defer / 3 dismiss. Fixed a re-`hello` cross-session subscription leak (High) — `hello` now drops any prior session subscription before subscribing the new one (regression test added); strengthened the false-confidence close test so it proves set removal via a surviving co-session peer. Deferred orphaned `frontend/render.ts` scaffold cleanup to Story 1.4. Full regression green (stylua, bun test server 28 pass, nvim smoke, orphan gate, frontend bundle, release validate-targets). Status → done.

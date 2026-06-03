@@ -199,18 +199,53 @@ describe("message protocol + WebSocket relay", () => {
     }
   }, 20000);
 
-  test("close handler removes the socket so a later render is not sent to it", async () => {
+  test("close handler removes the socket from the set without disturbing co-session subscribers", async () => {
     const { proc, ready } = await spawnServer();
     try {
+      // Two sockets on the SAME session: closing A must remove only A from the
+      // set, while B keeps receiving. Asserting B still gets exactly one frame
+      // proves the broadcast loop survived A's removal (not merely that a dead
+      // socket received nothing).
       const a = await openSocket(ready.port);
+      const b = await openSocket(ready.port);
       a.ws.send(JSON.stringify({ type: "hello", sessionId: 5, token: ready.token }));
+      b.ws.send(JSON.stringify({ type: "hello", sessionId: 5, token: ready.token }));
       await sleep(150);
       a.ws.close();
       await sleep(150);
 
       writeLine(proc, { type: "render", v: 1, sessionId: 5, engine: "dot", dot: "gone" });
       await sleep(200);
+      expect(a.received.length).toBe(0); // removed from the set
+      expect(b.received.length).toBe(1); // co-session subscriber unaffected
+      expect((b.received[0] as { dot: string }).dot).toBe("gone");
+      b.ws.close();
+    } finally {
+      proc.kill();
+    }
+  }, 20000);
+
+  test("re-hello to a new session drops the prior subscription (no cross-session leak)", async () => {
+    const { proc, ready } = await spawnServer();
+    try {
+      // One socket subscribes to session 1, then re-`hello`s to session 2.
+      const a = await openSocket(ready.port);
+      a.ws.send(JSON.stringify({ type: "hello", sessionId: 1, token: ready.token }));
+      await sleep(120);
+      a.ws.send(JSON.stringify({ type: "hello", sessionId: 2, token: ready.token }));
+      await sleep(120);
+
+      // A render for the OLD session must NOT reach this socket anymore.
+      writeLine(proc, { type: "render", v: 1, sessionId: 1, engine: "dot", dot: "OLD" });
+      await sleep(200);
       expect(a.received.length).toBe(0);
+
+      // A render for the NEW session still reaches it (exactly once — no dupes).
+      writeLine(proc, { type: "render", v: 2, sessionId: 2, engine: "dot", dot: "NEW" });
+      await sleep(200);
+      expect(a.received.length).toBe(1);
+      expect((a.received[0] as { dot: string }).dot).toBe("NEW");
+      a.ws.close();
     } finally {
       proc.kill();
     }

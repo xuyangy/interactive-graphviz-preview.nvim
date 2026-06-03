@@ -111,6 +111,12 @@ export function main(): number {
           }
           return;
         }
+        // If this socket was already subscribed (e.g. a re-`hello` to a
+        // different session), drop the prior subscription first so it can never
+        // keep receiving the old session's renders — never cross sessions (AC1).
+        if (typeof ws.data.sessionId === "number" && ws.data.sessionId !== sessionId) {
+          sessions.unsubscribe(ws.data.sessionId, ws);
+        }
         sessions.subscribe(sessionId, ws);
         ws.data.sessionId = sessionId;
         ws.data.subscribed = true;
