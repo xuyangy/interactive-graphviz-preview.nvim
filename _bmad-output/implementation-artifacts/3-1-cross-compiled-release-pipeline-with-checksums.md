@@ -6,7 +6,7 @@ baseline_commit: 189b6c5bb57a9d9b967a56cc7dc599747c2e276c
 
 # Story 3.1: Cross-compiled release pipeline with checksums
 
-Status: review
+Status: done
 
 ## Story
 
@@ -56,6 +56,10 @@ so that users can install a prebuilt binary with no runtime toolchain.
   - [x] Add a local or CI-checkable workflow lint/smoke path where practical, such as YAML syntax validation plus a shell dry-run of the target list/checksum generation.
   - [x] Keep existing `ci.yml` scaffold behavior intact.
   - [x] Document manual verification commands in the story completion notes when implemented.
+
+### Review Findings
+
+- [x] [Review][Patch] Release helper resolved build inputs from the caller cwd [scripts/release.ts:100] — fixed by running Bun build commands from the repository root so package release scripts and workflow commands use the same inputs and produce matching checksum manifests.
 
 ## Dev Notes
 

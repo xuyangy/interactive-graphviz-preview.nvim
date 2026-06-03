@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export type ReleaseTarget = {
   artifactName: string;
@@ -20,6 +21,12 @@ export const RELEASE_TARGETS: ReleaseTarget[] = [
   { artifactName: "server-darwin-x64", bunTarget: "bun-darwin-x64" },
   { artifactName: "server-darwin-arm64", bunTarget: "bun-darwin-arm64" },
 ];
+
+const PROJECT_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
+export function releaseProjectPath(...segments: string[]): string {
+  return join(PROJECT_ROOT, ...segments);
+}
 
 export function artifactNames(): string[] {
   return RELEASE_TARGETS.map((target) => target.artifactName);
@@ -91,7 +98,9 @@ export async function validateReleaseDirectory(outDir: string, manifest: string)
 }
 
 export async function buildReleaseArtifacts(outDir: string): Promise<void> {
-  await mkdir(outDir, { recursive: true });
+  const resolvedOutDir = resolve(outDir);
+
+  await mkdir(resolvedOutDir, { recursive: true });
   await runCommand(["bun", "build", "frontend/index.html", "--outdir", "dist/frontend"]);
 
   for (const target of RELEASE_TARGETS) {
@@ -102,13 +111,14 @@ export async function buildReleaseArtifacts(outDir: string): Promise<void> {
       `--target=${target.bunTarget}`,
       "server/server.ts",
       "--outfile",
-      join(outDir, target.artifactName),
+      join(resolvedOutDir, target.artifactName),
     ]);
   }
 }
 
 async function runCommand(command: string[]): Promise<void> {
   const proc = Bun.spawn(command, {
+    cwd: PROJECT_ROOT,
     stdout: "inherit",
     stderr: "inherit",
   });

@@ -6,6 +6,7 @@ import {
   RELEASE_TARGETS,
   artifactNames,
   generateChecksumManifest,
+  releaseProjectPath,
   validateChecksumManifest,
 } from "../scripts/release";
 
@@ -29,6 +30,16 @@ describe("release target metadata", () => {
       "bun-darwin-arm64",
     ]);
     expect(artifactNames().some((name) => name.includes("windows"))).toBe(false);
+  });
+});
+
+describe("release project paths", () => {
+  test("resolve build inputs from the repository root", async () => {
+    expect(await Bun.file(releaseProjectPath("frontend/index.html")).exists()).toBe(true);
+    expect(await Bun.file(releaseProjectPath("server/server.ts")).exists()).toBe(true);
+    expect(releaseProjectPath("frontend/index.html")).not.toContain(
+      "server/frontend/index.html",
+    );
   });
 });
 
