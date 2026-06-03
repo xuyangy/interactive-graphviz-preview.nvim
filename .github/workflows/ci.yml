@@ -32,5 +32,9 @@ jobs:
         run: busted tests/scaffold_spec.lua
       - name: Bun tests
         run: bun test server
+      - name: Release workflow syntax
+        run: ruby -e 'require "yaml"; YAML.load_file(".github/workflows/release.yml")'
+      - name: Release target smoke
+        run: bun run scripts/release.ts validate-targets
       - name: Frontend bundle smoke
         run: bun build frontend/index.html --outdir dist/frontend

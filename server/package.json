@@ -5,7 +5,9 @@
   "scripts": {
     "start": "bun run server.ts",
     "test": "bun test",
-    "build": "bun build server.ts --target=bun --outdir ../dist/server"
+    "build": "bun build server.ts --target=bun --outdir ../dist/server",
+    "release:targets": "bun run ../scripts/release.ts validate-targets",
+    "release:build": "bun run ../scripts/release.ts build --out-dir ../dist/release --write-checksums ../checksums.txt"
   },
   "devDependencies": {}
 }

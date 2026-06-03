@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { PROTOCOL_VERSION, type ProtocolMessage } from "./protocol";
+import { bundledFrontendEntry } from "./server";
 
 describe("server scaffold", () => {
   test("exports canonical protocol stubs", () => {
@@ -7,5 +8,9 @@ describe("server scaffold", () => {
 
     expect(PROTOCOL_VERSION).toBe(1);
     expect(message.type).toBe("ping");
+  });
+
+  test("exposes a bundled frontend entrypoint for executable builds", () => {
+    expect(bundledFrontendEntry()).toBeTruthy();
   });
 });

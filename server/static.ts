@@ -1,3 +1,5 @@
-export function staticAssetRoot(): string {
-  return "dist/frontend";
+import frontendEntry from "../frontend/index.html";
+
+export function staticAssetRoot(): unknown {
+  return frontendEntry;
 }
