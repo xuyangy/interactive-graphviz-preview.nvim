@@ -1,0 +1,1 @@
+-- Placeholder for Story 1.2 session lifecycle tests.

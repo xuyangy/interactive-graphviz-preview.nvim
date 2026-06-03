@@ -1,0 +1,13 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Release placeholder
+        run: |
+          echo "Release matrix is intentionally unimplemented until Epic 3." >&2
+          exit 1

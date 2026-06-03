@@ -1,0 +1,1 @@
+-- Placeholder for Story 1.7 lifecycle cleanup tests.

@@ -1,0 +1,17 @@
+dist/
+node_modules/
+.bun/
+.luarocks/
+luacov.*
+*.log
+.nvimlog
+.DS_Store
+.agents/
+.claude/
+.opencode/
+_bmad/
+!_bmad/_config/
+!_bmad/_config/**
+!_bmad/scripts/
+!_bmad/scripts/**
+!_bmad/config.toml
