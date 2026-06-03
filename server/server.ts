@@ -1,6 +1,6 @@
 import { PROTOCOL_VERSION, type ProtocolMessage } from "./protocol";
 import { staticAssetRoot } from "./static";
-import { SessionRegistry } from "./sessions";
+import { SessionRegistry, type SocketData, type Subscriber } from "./sessions";
 import { encodeLine, LineBuffer } from "./stdio";
 
 export function bundledFrontendEntry(): unknown {
@@ -27,28 +27,109 @@ function writeStdout(message: ProtocolMessage): void {
   process.stdout.write(encodeLine(message));
 }
 
+// Guarded send so one dead socket can't throw across a broadcast loop.
+function safeSend(ws: Subscriber, payload: string): void {
+  try {
+    ws.send(payload);
+  } catch (err) {
+    diag(`ws send failed: ${String(err)}`);
+  }
+}
+
 export function main(): number {
   void bundledFrontendEntry();
 
   const sessions = new SessionRegistry();
 
-  const server = Bun.serve({
+  // The per-start token minted below; enforced in `hello`. Captured by closure so
+  // the websocket handlers can validate without re-reading process state.
+  const token = crypto.randomUUID();
+
+  const server = Bun.serve<SocketData, undefined>({
     hostname: "127.0.0.1", // literal loopback (NFR-4) — never 0.0.0.0 / localhost / ::1
     port: 0, // ephemeral; the real port is read back below
-    fetch() {
-      // No frontend/relay served yet (Stories 1.3/1.4). The listener exists only
-      // so this process owns a real bound port to announce.
-      return new Response(null, { status: 503 });
+    // Static frontend served through the `static.ts` HTML-bundle seam (binary-
+    // friendly: same path under `bun run` and a `--compile` binary).
+    routes: {
+      "/": staticAssetRoot(),
+    },
+    fetch(req, srv) {
+      // WebSocket upgrade is performed here (Bun's contract): return undefined on
+      // a successful upgrade. The socket is created UN-subscribed; subscription
+      // happens only on a valid `hello`.
+      if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+        const upgraded = srv.upgrade<SocketData>(req, {
+          data: { subscribed: false },
+        });
+        if (upgraded) {
+          return undefined;
+        }
+        return new Response("upgrade failed", { status: 400 });
+      }
+      // Non-WS, non-route requests: nothing else is served in v1.
+      return new Response(null, { status: 404 });
     },
     websocket: {
-      // Browser return channel goes live in Story 1.3; ignore traffic for now.
-      message() {},
-      open() {},
-      close() {},
+      open() {
+        // Held un-subscribed until a valid `hello` arrives.
+      },
+      message(ws, raw) {
+        handleWsMessage(ws, raw);
+      },
+      close(ws) {
+        // Remove from the session's subscriber set (mutation lives in sessions.ts).
+        if (typeof ws.data.sessionId === "number") {
+          sessions.unsubscribe(ws.data.sessionId, ws);
+          ws.data.subscribed = false;
+        }
+      },
     },
   });
 
-  const token = crypto.randomUUID();
+  // One JSON object per WS frame (no NDJSON inside a frame). Dispatches on `type`;
+  // one malformed/unknown frame is logged + ignored and never throws.
+  function handleWsMessage(ws: Subscriber, raw: string | Buffer): void {
+    const text = typeof raw === "string" ? raw : raw.toString("utf8");
+    let msg: ProtocolMessage;
+    try {
+      msg = JSON.parse(text) as ProtocolMessage;
+    } catch {
+      diag(`unparseable ws frame ignored: ${text}`);
+      return;
+    }
+    switch (msg.type) {
+      case "hello": {
+        const sessionId = msg.sessionId;
+        const supplied = (msg as { token?: unknown }).token;
+        if (typeof sessionId !== "number" || supplied !== token) {
+          // Missing/wrong token (or no session) → reject: close, do NOT subscribe.
+          diag("hello rejected: invalid token or session");
+          try {
+            ws.close();
+          } catch {
+            // already closing
+          }
+          return;
+        }
+        sessions.subscribe(sessionId, ws);
+        ws.data.sessionId = sessionId;
+        ws.data.subscribed = true;
+        // SEAM (Story 1.4/1.6): on subscribe, replay the session's current
+        // lastGoodDot at its current `v` so a (re)connecting stateless browser
+        // re-syncs. lastGoodDot does not exist yet, so nothing is replayed here.
+        break;
+      }
+      case "ack":
+        // Warm-channel liveness only — no v1 feature behavior beyond keeping the
+        // channel alive. (Story 1.5 owns real `v` semantics.)
+        break;
+      default:
+        // Any other/unrecognized inbound type: log + ignore (channel stays warm
+        // without growing v1 surface). Never throws across the connection.
+        diag(`ignoring inbound ws message type=${String(msg.type)}`);
+    }
+  }
+
   writeStdout({ type: "ready", port: server.port, token });
   diag(`ready protocol=${PROTOCOL_VERSION} port=${server.port}`);
 
@@ -94,6 +175,19 @@ export function main(): number {
           sessions.unregister(message.sessionId);
         }
         break;
+      case "render": {
+        // Relay the SAME envelope verbatim to exactly this session's subscribers.
+        // Never cross sessions; unknown session or zero subscribers is a silent
+        // no-op (not an error). Do NOT mint/mutate `v` here — it is carried as-is
+        // from the Neovim source (Story 1.5 owns the policy).
+        if (typeof message.sessionId === "number") {
+          const payload = JSON.stringify(message); // one JSON object per WS frame
+          for (const ws of sessions.subscribersOf(message.sessionId)) {
+            safeSend(ws, payload);
+          }
+        }
+        break;
+      }
       case "ping":
         writeStdout({ type: "pong" });
         break;
