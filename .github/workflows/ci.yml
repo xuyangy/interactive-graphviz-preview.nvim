@@ -29,11 +29,13 @@ jobs:
       - name: Lua smoke
         run: nvim --headless -i NONE -u tests/minimal_init.lua -l tests/nvim_smoke.lua -c qa
       - name: Busted smoke
-        run: busted tests/scaffold_spec.lua tests/session_spec.lua
+        run: busted tests/scaffold_spec.lua tests/session_spec.lua tests/commands_spec.lua tests/render_spec.lua
       - name: No-orphan supervision gate (NFR-3)
         run: busted tests/integration/orphan_spec.lua
       - name: Bun tests
         run: bun test server
+      - name: E2E cold-open relay (Story 1.4 AC2)
+        run: bun test tests/e2e/render.spec.ts
       - name: Release workflow syntax
         run: ruby -e 'require "yaml"; YAML.load_file(".github/workflows/release.yml")'
       - name: Release target smoke

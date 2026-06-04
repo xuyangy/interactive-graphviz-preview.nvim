@@ -18,6 +18,7 @@ local state = {
   stdout_buf = "",
   heartbeat = nil, -- vim.uv timer
   pending = {}, -- wire messages queued until `ready`
+  on_ready_cbs = {}, -- one-shot callbacks fired when `ready` arrives (Story 1.4)
 }
 
 M.state = state
@@ -75,6 +76,14 @@ local function dispatch(msg)
     state.pending = {}
     for _, qm in ipairs(queued) do
       write_msg(qm)
+    end
+    local cbs = state.on_ready_cbs
+    state.on_ready_cbs = {}
+    for _, cb in ipairs(cbs) do
+      local ok, err = pcall(cb)
+      if not ok then
+        log.warn("on_ready callback error: " .. tostring(err))
+      end
     end
   elseif t == "pong" then
     -- liveness ack; nothing required
@@ -231,8 +240,22 @@ function M.shutdown()
   state.running = false
 end
 
+-- Register a one-shot callback to run when `ready` is processed. If the server
+-- is already running (port/token known), calls `fn` via vim.schedule immediately.
+-- Minimal seam for the browser-open deferral in commands.lua.
+function M.on_ready(fn)
+  if state.running then
+    vim.schedule(fn)
+  else
+    table.insert(state.on_ready_cbs, fn)
+  end
+end
+
 function M._on_exit(_)
   stop_heartbeat()
+  if #state.on_ready_cbs > 0 then
+    log.warn("GraphvizPreview: server exited before ready — browser will not open")
+  end
   state.handle = nil
   state.alive = false
   state.running = false
@@ -240,6 +263,7 @@ function M._on_exit(_)
   state.token = nil
   state.stdout_buf = ""
   state.pending = {}
+  state.on_ready_cbs = {}
 end
 
 return M

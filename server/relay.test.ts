@@ -225,6 +225,60 @@ describe("message protocol + WebSocket relay", () => {
     }
   }, 20000);
 
+  test("cold-open replay: render sent before browser connects is replayed on subscribe", async () => {
+    // Mirrors the real :GraphvizPreview order: render flushed at `ready`, THEN
+    // the browser opens and subscribes. Without replay-on-subscribe the first
+    // render is silently dropped (AC2 would fail with a blank page).
+    const { proc, ready } = await spawnServer();
+    try {
+      writeLine(proc, { type: "session_open", sessionId: 7 });
+      const sent = { type: "render", v: 1, sessionId: 7, engine: "dot", dot: "digraph{cold->open}" };
+      writeLine(proc, sent);
+      await sleep(150); // render arrives before any browser exists
+
+      // Now the browser connects and authenticates.
+      const { ws, received } = await openSocket(ready.port);
+      ws.send(JSON.stringify({ type: "hello", sessionId: 7, token: ready.token }));
+      await sleep(200);
+
+      // The cold render must have been replayed on subscribe.
+      expect(received.length).toBe(1);
+      expect(received[0]).toMatchObject({ type: "render", dot: "digraph{cold->open}", v: 1 });
+
+      // A subsequent render is also received (normal live path still works).
+      const sent2 = { type: "render", v: 2, sessionId: 7, engine: "dot", dot: "digraph{live->render}" };
+      writeLine(proc, sent2);
+      await sleep(150);
+      expect(received.length).toBe(2);
+      expect(received[1]).toMatchObject({ dot: "digraph{live->render}" });
+
+      ws.close();
+    } finally {
+      proc.kill();
+    }
+  }, 20000);
+
+  test("cold-open replay: only the LAST render is replayed (not all historical)", async () => {
+    const { proc, ready } = await spawnServer();
+    try {
+      writeLine(proc, { type: "session_open", sessionId: 8 });
+      writeLine(proc, { type: "render", v: 1, sessionId: 8, engine: "dot", dot: "digraph{first}" });
+      writeLine(proc, { type: "render", v: 2, sessionId: 8, engine: "dot", dot: "digraph{second}" });
+      await sleep(150);
+
+      const { ws, received } = await openSocket(ready.port);
+      ws.send(JSON.stringify({ type: "hello", sessionId: 8, token: ready.token }));
+      await sleep(200);
+
+      // Only the last render replayed, not both.
+      expect(received.length).toBe(1);
+      expect(received[0]).toMatchObject({ dot: "digraph{second}", v: 2 });
+      ws.close();
+    } finally {
+      proc.kill();
+    }
+  }, 20000);
+
   test("re-hello to a new session drops the prior subscription (no cross-session leak)", async () => {
     const { proc, ready } = await spawnServer();
     try {

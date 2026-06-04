@@ -1,0 +1,9 @@
+{
+  "name": "interactive-graphviz-frontend",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@hpcc-js/wasm-graphviz": "1.21.2",
+    "d3-graphviz": "5.6.0"
+  }
+}

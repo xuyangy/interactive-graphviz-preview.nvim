@@ -9,5 +9,7 @@
     "release:targets": "bun run ../scripts/release.ts validate-targets",
     "release:build": "bun run ../scripts/release.ts build --out-dir ../dist/release --write-checksums ../checksums.txt"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@hpcc-js/wasm-graphviz": "1.21.2"
+  }
 }

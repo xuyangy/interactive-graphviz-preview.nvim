@@ -1,31 +1,27 @@
 import type { ProtocolMessage } from "./protocol";
 import { createWebSocketClient } from "./ws";
+import { queueRender } from "./render";
 
-const app = document.getElementById("app");
-
-function show(text: string): void {
-  if (app) {
-    app.textContent = text;
-  }
-}
-
-// Story 1.3 is the communication spine only: connect, send `hello`, and
-// stash/log inbound envelopes. No DOM render of DOT yet (Story 1.4); d3-graphviz /
-// @hpcc-js/wasm-graphviz are intentionally NOT imported here.
+// Debug stash: all inbound envelopes are kept here for inspection.
+// Intentional — reviewed and dismissed in Story 1.3 code review.
 const lastEnvelopes: ProtocolMessage[] = [];
 
-const client = createWebSocketClient({
+// Keep the handle so Story 1.7 can call wsClient.close() for graceful teardown.
+const _wsClient = createWebSocketClient({
   onMessage(msg) {
     lastEnvelopes.push(msg);
-    // Diagnostic only; rendering arrives in Story 1.4.
     console.debug("interactive-graphviz: received envelope", msg);
-    if (msg.type === "render") {
-      show("connected — render envelope received (awaiting render in 1.4)");
+  },
+  onRender(msg) {
+    const dot = msg.dot as string | undefined;
+    const engine = (msg.engine as string | undefined) ?? "dot";
+    const v = (msg.v as number | undefined) ?? 0;
+    if (dot) {
+      queueRender(dot, engine, v);
     }
   },
+  // error_display and session_closed are stash/log-only until Stories 1.6/1.7.
 });
 
 // Expose the stash for debugging / future render wiring.
 (window as unknown as { __igEnvelopes?: ProtocolMessage[] }).__igEnvelopes = lastEnvelopes;
-
-show(client.connected ? "connected, awaiting render" : "connecting, awaiting render");

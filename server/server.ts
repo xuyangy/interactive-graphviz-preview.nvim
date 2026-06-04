@@ -117,12 +117,15 @@ export function main(): number {
         if (typeof ws.data.sessionId === "number" && ws.data.sessionId !== sessionId) {
           sessions.unsubscribe(ws.data.sessionId, ws);
         }
-        sessions.subscribe(sessionId, ws);
+        const session = sessions.subscribe(sessionId, ws);
         ws.data.sessionId = sessionId;
         ws.data.subscribed = true;
-        // SEAM (Story 1.4/1.6): on subscribe, replay the session's current
-        // lastGoodDot at its current `v` so a (re)connecting stateless browser
-        // re-syncs. lastGoodDot does not exist yet, so nothing is replayed here.
+        // Replay the last render to a browser that connects after the first
+        // fan-out (cold-open race). lastRender stores the raw envelope verbatim;
+        // no good/bad distinction yet — that is Story 1.6 (lastGoodDot).
+        if (session.lastRender) {
+          safeSend(ws, JSON.stringify(session.lastRender));
+        }
         break;
       }
       case "ack":
@@ -191,6 +194,8 @@ export function main(): number {
           for (const ws of sessions.subscribersOf(message.sessionId)) {
             safeSend(ws, payload);
           }
+          // Store for replay to late-connecting browsers (cold-open race fix).
+          sessions.setLastRender(message.sessionId, message);
         }
         break;
       }
