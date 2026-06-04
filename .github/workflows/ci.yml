@@ -10,6 +10,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      - name: Install Bun dependencies
+        run: |
+          bun install --cwd frontend --frozen-lockfile
+          bun install --cwd server --frozen-lockfile
       - name: Install Neovim
         uses: rhysd/action-setup-vim@v1
         with:

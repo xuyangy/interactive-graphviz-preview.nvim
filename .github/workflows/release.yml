@@ -19,6 +19,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.10
+      - name: Install Bun dependencies
+        run: |
+          bun install --cwd frontend --frozen-lockfile
+          bun install --cwd server --frozen-lockfile
       - name: Validate release context
         id: context
         run: |
