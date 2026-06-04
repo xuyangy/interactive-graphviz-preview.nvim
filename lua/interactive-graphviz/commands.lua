@@ -1,10 +1,7 @@
 local M = {}
 
-local function placeholder(command)
-  require("interactive-graphviz.log").notify(
-    command .. " is not implemented in the scaffold story",
-    vim.log.levels.INFO
-  )
+local function trim(s)
+  return tostring(s or ""):match("^%s*(.-)%s*$")
 end
 
 -- Returns true if the given buffer contains DOT/Graphviz content.
@@ -144,8 +141,44 @@ function M.toggle()
   end
 end
 
-function M.engine()
-  placeholder("GraphvizEngine")
+function M.engine(opts)
+  local config = require("interactive-graphviz.config")
+  local log = require("interactive-graphviz.log")
+
+  local engine = trim(opts and opts.args)
+  local current = config.get()
+  if engine == "" then
+    log.notify(
+      "GraphvizEngine: current engine: "
+        .. tostring(current.engine)
+        .. "; available: "
+        .. table.concat(current.engines or {}, ", "),
+      vim.log.levels.INFO
+    )
+    return
+  end
+
+  local ok, msg = config.set_engine(engine)
+  if not ok then
+    log.warn(msg)
+    return
+  end
+
+  local bufnr = vim.api.nvim_get_current_buf()
+  local session = require("interactive-graphviz.session")
+  local server = require("interactive-graphviz.server")
+  if not (session.has(bufnr) and server.state.running) then
+    return
+  end
+
+  local dot = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
+  server.send({
+    type = "render",
+    sessionId = bufnr,
+    v = session.next_version(bufnr),
+    engine = config.get().engine,
+    dot = dot,
+  })
 end
 
 return M

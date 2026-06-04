@@ -17,6 +17,19 @@ M.options = vim.deepcopy(M.defaults)
 
 local VALID_LOG_LEVELS = { off = true, error = true, warn = true, info = true, debug = true }
 
+local function engine_list()
+  return table.concat(M.options.engines or {}, ", ")
+end
+
+local function has_engine(engine)
+  for _, candidate in ipairs(M.options.engines or {}) do
+    if candidate == engine then
+      return true
+    end
+  end
+  return false
+end
+
 -- Validate merged options, collecting warnings. Returns the corrected options
 -- table and a list of warning strings. Caller emits warnings after M.options is
 -- fully written to avoid a log → config circular read with stale state.
@@ -176,6 +189,19 @@ end
 
 function M.get()
   return M.options
+end
+
+function M.set_engine(engine)
+  if type(engine) ~= "string" or not has_engine(engine) then
+    return false,
+      "GraphvizEngine: unknown engine '"
+        .. tostring(engine)
+        .. "'; expected one of: "
+        .. engine_list()
+  end
+
+  M.options.engine = engine
+  return true
 end
 
 return M

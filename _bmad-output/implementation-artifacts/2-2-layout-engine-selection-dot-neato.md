@@ -5,7 +5,7 @@ created: 2026-06-04T23:29:45+0200
 
 # Story 2.2: Layout engine selection (dot/neato)
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -24,39 +24,39 @@ so that I can get a more readable arrangement.
 
 ## Tasks / Subtasks
 
-- [ ] **`lua/interactive-graphviz/config.lua` - add runtime engine setter** (AC: 1, 2, 4, 5)
-  - [ ] Add `M.set_engine(engine)` or equivalent small API that validates against current `M.options.engines`.
-  - [ ] On valid input, update `M.options.engine` and return `true`.
-  - [ ] On invalid input, return `false, message`; do not reset to default and do not emit duplicate warnings from `setup{}` validation.
-  - [ ] Keep `setup{}` as the source for defaults and `engines` allowlist; do not introduce a second engine list.
+- [x] **`lua/interactive-graphviz/config.lua` - add runtime engine setter** (AC: 1, 2, 4, 5)
+  - [x] Add `M.set_engine(engine)` or equivalent small API that validates against current `M.options.engines`.
+  - [x] On valid input, update `M.options.engine` and return `true`.
+  - [x] On invalid input, return `false, message`; do not reset to default and do not emit duplicate warnings from `setup{}` validation.
+  - [x] Keep `setup{}` as the source for defaults and `engines` allowlist; do not introduce a second engine list.
 
-- [ ] **`lua/interactive-graphviz/commands.lua` - implement `M.engine(opts)`** (AC: 1, 2, 3, 4)
-  - [ ] Replace the placeholder with real command handling for `:GraphvizEngine {engine}`.
-  - [ ] Read the selected engine from `opts.args`; if empty, report current engine and available engines.
-  - [ ] Validate through `config.set_engine()`; invalid engines must call `log.notify` or `log.warn` with a clear message such as `GraphvizEngine: unknown engine 'fdp'; expected one of: dot, neato`.
-  - [ ] If the current buffer has an active session and the server is alive, send a fresh `render` envelope with current DOT, current `sessionId`, `engine`, and `session.next_version(bufnr)`.
-  - [ ] If no active session exists, only update config for future previews. Do not call `server.open_session`, `server.ensure_started`, or `M.preview()`.
-  - [ ] Preserve existing `preview`, `stop`, and `toggle` behavior; do not change browser open logic.
+- [x] **`lua/interactive-graphviz/commands.lua` - implement `M.engine(opts)`** (AC: 1, 2, 3, 4)
+  - [x] Replace the placeholder with real command handling for `:GraphvizEngine {engine}`.
+  - [x] Read the selected engine from `opts.args`; if empty, report current engine and available engines.
+  - [x] Validate through `config.set_engine()`; invalid engines must call `log.notify` or `log.warn` with a clear message such as `GraphvizEngine: unknown engine 'fdp'; expected one of: dot, neato`.
+  - [x] If the current buffer has an active session and the server is alive, send a fresh `render` envelope with current DOT, current `sessionId`, `engine`, and `session.next_version(bufnr)`.
+  - [x] If no active session exists, only update config for future previews. Do not call `server.open_session`, `server.ensure_started`, or `M.preview()`.
+  - [x] Preserve existing `preview`, `stop`, and `toggle` behavior; do not change browser open logic.
 
-- [ ] **Protocol/server guardrails** (AC: 3, 6)
-  - [ ] `server/protocol.ts` and `lua/interactive-graphviz/protocol.lua` already include `set_engine`; do not add a new message type unless implementation truly needs one.
-  - [ ] Prefer the existing `render{sessionId,v,engine,dot}` path for immediate re-render. The server already relays render envelopes verbatim and stores the last cleanly relayed render for reconnects.
-  - [ ] Do not mutate `server/sessions.ts` unless the implementation deliberately supports server-side `set_engine`; current ACs can pass without changing server session state because the render envelope carries `engine`.
+- [x] **Protocol/server guardrails** (AC: 3, 6)
+  - [x] `server/protocol.ts` and `lua/interactive-graphviz/protocol.lua` already include `set_engine`; do not add a new message type unless implementation truly needs one.
+  - [x] Prefer the existing `render{sessionId,v,engine,dot}` path for immediate re-render. The server already relays render envelopes verbatim and stores the last cleanly relayed render for reconnects.
+  - [x] Do not mutate `server/sessions.ts` unless the implementation deliberately supports server-side `set_engine`; current ACs can pass without changing server session state because the render envelope carries `engine`.
 
-- [ ] **Frontend validation / minimal change check** (AC: 6)
-  - [ ] Confirm `frontend/main.ts` reads `msg.engine` with fallback `"dot"` and calls `queueRender(dot, engine, v)`.
-  - [ ] Confirm `frontend/render.ts` calls `graphviz("#app").engine(engine).renderDot(dot)`. d3-graphviz requires `.engine(engine)` before `renderDot`.
-  - [ ] If adding tests, prefer `server/render-queue.test.ts` for engine propagation through the pure queue and `server/render.test.ts` for WASM `neato` support; avoid browser-only rewrites unless needed.
+- [x] **Frontend validation / minimal change check** (AC: 6)
+  - [x] Confirm `frontend/main.ts` reads `msg.engine` with fallback `"dot"` and calls `queueRender(dot, engine, v)`.
+  - [x] Confirm `frontend/render.ts` calls `graphviz("#app").engine(engine).renderDot(dot)`. d3-graphviz requires `.engine(engine)` before `renderDot`.
+  - [x] If adding tests, prefer `server/render-queue.test.ts` for engine propagation through the pure queue and `server/render.test.ts` for WASM `neato` support; avoid browser-only rewrites unless needed.
 
-- [ ] **Tests** (AC: 1-6)
-  - [ ] Extend `tests/config_spec.lua` for `set_engine`: valid switch, invalid rejection, custom `engines` allowlist, and no fallback-to-default side effect on invalid runtime command.
-  - [ ] Extend `tests/commands_spec.lua` for:
+- [x] **Tests** (AC: 1-6)
+  - [x] Extend `tests/config_spec.lua` for `set_engine`: valid switch, invalid rejection, custom `engines` allowlist, and no fallback-to-default side effect on invalid runtime command.
+  - [x] Extend `tests/commands_spec.lua` for:
     - valid `M.engine({ args = "neato" })` updates config and sends a render when session is active;
     - valid engine with no active session updates config only;
     - invalid engine logs/reports and sends nothing;
     - empty args reports current/available engines and sends nothing.
-  - [ ] Add or extend a TS test proving engine argument is preserved by `createRenderQueue` and/or that `Graphviz.load().layout(..., "svg", "neato")` remains green. `server/render.test.ts` already has a `neato` WASM gate.
-  - [ ] Keep stubs local to each test file. Follow existing `package.loaded[...]` injection patterns in `tests/commands_spec.lua` and `tests/config_spec.lua`.
+  - [x] Add or extend a TS test proving engine argument is preserved by `createRenderQueue` and/or that `Graphviz.load().layout(..., "svg", "neato")` remains green. `server/render.test.ts` already has a `neato` WASM gate.
+  - [x] Keep stubs local to each test file. Follow existing `package.loaded[...]` injection patterns in `tests/commands_spec.lua` and `tests/config_spec.lua`.
 
 ## Dev Notes
 
@@ -144,11 +144,32 @@ gpt-5-codex
 
 ### Debug Log References
 
+- 2026-06-04T23:34:40+0200 - Story 2.2 moved from ready-for-dev to in-progress; baseline_commit preserved as f9f70ab.
+- 2026-06-04T23:38:49+0200 - Busted unavailable locally; Lua specs validated with inline Busted-compatible harness.
+- 2026-06-04T23:38:49+0200 - Bun server/e2e suites required unsandboxed execution for local server spawn/bind tests.
+
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created.
 - Story auto-discovered from sprint status as first backlog story.
 - Existing implementation already carries `engine` through normal preview/live-reload render envelopes and frontend render path; missing work is runtime command/config mutation and tests.
 - Story status set to ready-for-dev.
+- Added `config.set_engine(engine)` with current `engines` allowlist validation, clear invalid-engine messages, and no setup-warning side effects.
+- Implemented `commands.engine(opts)` for empty-arg reporting, runtime config mutation, active-session render refresh, and no implicit preview/server start when inactive.
+- Confirmed protocol/server/frontend guardrails: reused existing `render` envelope and did not add a new server message path or mutate server session state.
+- Added Lua command/config coverage and a pure render queue TS test proving selected engine propagation.
+- Validations passed: `stylua --check lua/ tests/commands_spec.lua tests/config_spec.lua`; `nvim --headless -i NONE -u tests/minimal_init.lua -l tests/nvim_smoke.lua -c qa`; Lua unit specs via inline harness; `bun test server`; `bun test tests/e2e/render.spec.ts`.
 
 ### File List
+
+- `_bmad-output/implementation-artifacts/2-2-layout-engine-selection-dot-neato.md`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- `lua/interactive-graphviz/config.lua`
+- `lua/interactive-graphviz/commands.lua`
+- `server/render-queue.test.ts`
+- `tests/config_spec.lua`
+- `tests/commands_spec.lua`
+
+### Change Log
+
+- 2026-06-04T23:38:49+0200 - Implemented Story 2.2 layout engine selection command/config behavior, tests, and review status update.

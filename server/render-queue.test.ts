@@ -15,11 +15,13 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  */
 function makeMockRenderer(resolveDelay = 0) {
   const rendered: string[] = [];
+  const engines: string[] = [];
   let resolveFn: (() => void) | null = null;
 
   const fn = (dot: string, _engine: string): Promise<void> => {
     return new Promise<void>((resolve) => {
       rendered.push(dot);
+      engines.push(_engine);
       if (resolveDelay === 0) {
         resolve();
       } else {
@@ -29,7 +31,7 @@ function makeMockRenderer(resolveDelay = 0) {
     });
   };
 
-  return { fn, rendered, flush: () => resolveFn?.() };
+  return { fn, rendered, engines, flush: () => resolveFn?.() };
 }
 
 describe("render-queue: v-guard", () => {
@@ -40,6 +42,14 @@ describe("render-queue: v-guard", () => {
     await sleep(10);
     expect(rendered).toEqual(["digraph{a}"]);
     expect(q._lastAppliedV()).toBe(1);
+  });
+
+  test("passes the selected engine through to the renderer", async () => {
+    const { fn, engines } = makeMockRenderer();
+    const q = createRenderQueue(fn);
+    q.queueRender("digraph{a}", "neato", 1);
+    await sleep(10);
+    expect(engines).toEqual(["neato"]);
   });
 
   test("discards render when v < lastAppliedV (stale out-of-order)", async () => {

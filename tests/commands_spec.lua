@@ -147,10 +147,28 @@ local function make_render()
   }
 end
 
-local function make_config(engine, open_cmd)
+local function make_config(engine, open_cmd, engines)
+  local state = {
+    engine = engine or "dot",
+    open_cmd = open_cmd,
+    engines = engines or { "dot", "neato" },
+  }
   return {
     get = function()
-      return { engine = engine or "dot", open_cmd = open_cmd }
+      return state
+    end,
+    set_engine = function(next_engine)
+      for _, allowed in ipairs(state.engines) do
+        if allowed == next_engine then
+          state.engine = next_engine
+          return true
+        end
+      end
+      return false,
+        "GraphvizEngine: unknown engine '"
+          .. tostring(next_engine)
+          .. "'; expected one of: "
+          .. table.concat(state.engines, ", ")
     end,
   }
 end
@@ -612,5 +630,102 @@ describe("commands.toggle", function()
       #server.close_session_calls,
       "close_session must not be called when toggling on"
     )
+  end)
+end)
+
+-- ── commands.engine ───────────────────────────────────────────────────────────
+
+describe("commands.engine", function()
+  after_each(function()
+    package.loaded["interactive-graphviz.commands"] = nil
+    package.loaded["interactive-graphviz.server"] = nil
+    package.loaded["interactive-graphviz.session"] = nil
+    package.loaded["interactive-graphviz.config"] = nil
+    package.loaded["interactive-graphviz.log"] = nil
+    package.loaded["interactive-graphviz.render"] = nil
+    _G.vim = nil
+  end)
+
+  it("valid engine with active session updates config and sends fresh render", function()
+    local bufnr = 21
+    local server = make_server({ state = { running = true, port = 9876, token = "tok-abc" } })
+    local config = make_config("dot")
+    local cmd = load_commands(
+      make_vim({ filetype = "dot", bufnr = bufnr, lines = { "digraph{neato}" } }),
+      server,
+      make_session({ active = { [bufnr] = true } }),
+      config,
+      make_log()
+    )
+
+    cmd.engine({ args = "neato" })
+
+    assert.are.equal("neato", config.get().engine)
+    assert.are.equal(1, #server.send_calls)
+    local msg = server.send_calls[1]
+    assert.are.equal("render", msg.type)
+    assert.are.equal(bufnr, msg.sessionId)
+    assert.are.equal(1, msg.v)
+    assert.are.equal("neato", msg.engine)
+    assert.are.equal("digraph{neato}", msg.dot)
+  end)
+
+  it("valid engine with no active session updates config only", function()
+    local server = make_server()
+    local config = make_config("dot")
+    local cmd = load_commands(
+      make_vim({ filetype = "dot", bufnr = 22 }),
+      server,
+      make_session({ active = {} }),
+      config,
+      make_log()
+    )
+
+    cmd.engine({ args = "neato" })
+
+    assert.are.equal("neato", config.get().engine)
+    assert.are.equal(0, #server.send_calls)
+    assert.are.equal(0, #server.open_session_calls)
+  end)
+
+  it("invalid engine logs and sends nothing", function()
+    local bufnr = 23
+    local server = make_server()
+    local config = make_config("dot")
+    local log = make_log()
+    local cmd = load_commands(
+      make_vim({ filetype = "dot", bufnr = bufnr }),
+      server,
+      make_session({ active = { [bufnr] = true } }),
+      config,
+      log
+    )
+
+    cmd.engine({ args = "fdp" })
+
+    assert.are.equal("dot", config.get().engine)
+    assert.are.equal(1, #log._warned)
+    assert.truthy(log._warned[1]:find("unknown engine 'fdp'", 1, true))
+    assert.are.equal(0, #server.send_calls)
+    assert.are.equal(0, #server.open_session_calls)
+  end)
+
+  it("empty args reports current and available engines without sending render", function()
+    local server = make_server()
+    local log = make_log()
+    local cmd = load_commands(
+      make_vim({ filetype = "dot", bufnr = 24 }),
+      server,
+      make_session({ active = { [24] = true } }),
+      make_config("dot"),
+      log
+    )
+
+    cmd.engine({ args = "" })
+
+    assert.are.equal(1, #log._notified)
+    assert.truthy(log._notified[1]:find("current engine: dot", 1, true))
+    assert.truthy(log._notified[1]:find("available: dot, neato", 1, true))
+    assert.are.equal(0, #server.send_calls)
   end)
 end)

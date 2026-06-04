@@ -281,6 +281,51 @@ describe("config.setup — engines validation", function()
   end)
 end)
 
+describe("config.set_engine", function()
+  before_each(reset)
+
+  it("accepts a valid runtime engine switch", function()
+    config.setup()
+
+    local ok, msg = config.set_engine("neato")
+
+    assert.are.equal(true, ok)
+    assert.is_nil(msg)
+    assert.are.equal("neato", config.get().engine)
+    assert.are.equal(0, #warn_calls, "runtime setter must not emit setup warnings")
+  end)
+
+  it("rejects an invalid runtime engine without mutating current engine", function()
+    config.setup({ engine = "neato" })
+
+    local ok, msg = config.set_engine("fdp")
+
+    assert.are.equal(false, ok)
+    assert.truthy(msg:find("unknown engine 'fdp'", 1, true))
+    assert.truthy(msg:find("dot, neato", 1, true))
+    assert.are.equal("neato", config.get().engine)
+    assert.are.equal(0, #warn_calls, "runtime rejection must not emit setup warnings")
+  end)
+
+  it("uses the custom engines allowlist from setup", function()
+    config.setup({ engines = { "dot", "neato", "fdp" } })
+
+    local ok = config.set_engine("fdp")
+
+    assert.are.equal(true, ok)
+    assert.are.equal("fdp", config.get().engine)
+  end)
+
+  it("does not fall back to default after invalid runtime input", function()
+    config.setup({ engines = { "dot", "neato", "fdp" }, engine = "fdp" })
+
+    local ok = config.set_engine("bad")
+
+    assert.are.equal(false, ok)
+    assert.are.equal("fdp", config.get().engine)
+  end)
+end)
+
 describe("config.setup — preserve_view validation", function()
   before_each(reset)
 
