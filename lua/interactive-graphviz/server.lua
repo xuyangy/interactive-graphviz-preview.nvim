@@ -189,7 +189,11 @@ function M.ensure_started()
     stdout = on_stdout,
     stderr = on_stderr,
     text = true,
-    env = { IG_HEARTBEAT_TIMEOUT_MS = heartbeat_timeout_ms() },
+    env = {
+      IG_HEARTBEAT_TIMEOUT_MS = heartbeat_timeout_ms(),
+      IG_BIND = config.get().bind,
+      IG_PORT = tostring(config.get().port),
+    },
   }, function(obj)
     vim.schedule(function()
       M._on_exit(obj)

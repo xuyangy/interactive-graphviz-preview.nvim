@@ -27,6 +27,12 @@
 - `vim.uv.new_timer()` return value unchecked for nil — pre-existing pattern from server.lua heartbeat; applies to render.lua debounce as well. Add nil guard if low-memory robustness is needed. [lua/interactive-graphviz/render.lua:38]
 - Re-calling `start_watch` on an already-watched buffer leaves previous debounce timer alive (mitigated by timer-identity guard, practically safe). Story 1.7 could add `stop_watch` before `start_watch` in a re-open scenario for cleanliness. [lua/interactive-graphviz/render.lua:59-68]
 
+## Deferred from: code review of 2-1-configuration-surface-via-setup (2026-06-04)
+
+- `validate()` mutates its argument in-place while also returning it — misleading API that could cause subtle bugs if `validate` is ever called with a non-disposable table. Pre-existing style choice; no current correctness issue. [lua/interactive-graphviz/config.lua]
+- IIFE in `engines` element-type check is unnecessarily complex; extract as a named helper or inline loop for readability. Style only, not a correctness issue. [lua/interactive-graphviz/config.lua]
+- `ensure_started()` `is_running()` guard uses `state.alive` (pre-`ready`), meaning a second setup call while the server is booting is silently dropped. Pre-existing behavior; desired by AC4 but uses `alive` not `running` as the gate. [lua/interactive-graphviz/server.lua]
+
 ## Deferred from: code review of story 1-6-error-resilience-and-view-preservation (2026-06-04)
 
 - Unicode surrogate-pair split in `extractMessage` at the 200-char boundary — JavaScript `slice` operates on UTF-16 code units and can split emoji/CJK surrogate pairs. Low-probability cosmetic issue. [frontend/render.ts:56]

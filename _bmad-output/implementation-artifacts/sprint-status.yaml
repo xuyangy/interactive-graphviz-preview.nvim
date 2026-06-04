@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-02T19:07:07+0200
-last_updated: 2026-06-04T23:59:01+0200
+last_updated: 2026-06-04T23:00:00+0200
 project: interactive-graphviz.nvim
 project_key: NOKEY
 tracking_system: file-system
@@ -51,8 +51,8 @@ development_status:
   1-6-error-resilience-and-view-preservation: done
   1-7-stop-toggle-and-lifecycle-cleanup: done
   epic-1-retrospective: optional
-  epic-2: backlog
-  2-1-configuration-surface-via-setup: backlog
+  epic-2: in-progress
+  2-1-configuration-surface-via-setup: done
   2-2-layout-engine-selection-dot-neato: backlog
   epic-2-retrospective: optional
   epic-3: in-progress

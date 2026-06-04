@@ -18,6 +18,21 @@ export function heartbeatTimeoutMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_HEARTBEAT_TIMEOUT_MS;
 }
 
+// Reads the bind address from the environment. Defaults to loopback (NFR-4).
+// The Lua config enforces the security invariant: IG_BIND is only "0.0.0.0"
+// when expose_to_lan=true is explicitly set.
+export function resolveBindAddress(): string {
+  return process.env.IG_BIND ?? "127.0.0.1";
+}
+
+// Reads the listen port from the environment. 0 = ephemeral (Bun picks a free
+// port and reports it back in the ready announcement). Returns 0 on bad input.
+export function resolvePort(): number {
+  const raw = process.env.IG_PORT;
+  const parsed = raw ? Number.parseInt(raw, 10) : 0;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
 // Diagnostics go to stderr; stdout is the protocol channel.
 function diag(message: string): void {
   console.error(`interactive-graphviz server: ${message}`);
@@ -46,8 +61,8 @@ export function main(): number {
   const token = crypto.randomUUID();
 
   const server = Bun.serve<SocketData, undefined>({
-    hostname: "127.0.0.1", // literal loopback (NFR-4) — never 0.0.0.0 / localhost / ::1
-    port: 0, // ephemeral; the real port is read back below
+    hostname: resolveBindAddress(), // NFR-4: loopback by default; 0.0.0.0 only when Lua config sets expose_to_lan=true
+    port: resolvePort(), // 0 = ephemeral; the real port is read back below
     // Static frontend served through the `static.ts` HTML-bundle seam (binary-
     // friendly: same path under `bun run` and a `--compile` binary).
     routes: {
