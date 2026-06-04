@@ -35,14 +35,14 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-02T19:07:07+0200
-last_updated: 2026-06-04T23:49:41+0200
+last_updated: 2026-06-04T23:55:00+0200
 project: interactive-graphviz.nvim
 project_key: NOKEY
 tracking_system: file-system
 story_location: /Users/xuyangy/trash/git/interactive-graphviz.nvim/_bmad-output/implementation-artifacts
 
 development_status:
-  epic-1: in-progress
+  epic-1: done
   1-1-project-scaffold-and-development-harness: done
   1-2-server-spawn-and-no-orphan-supervision: done
   1-3-message-protocol-and-websocket-relay: done
@@ -51,7 +51,7 @@ development_status:
   1-6-error-resilience-and-view-preservation: done
   1-7-stop-toggle-and-lifecycle-cleanup: done
   epic-1-retrospective: optional
-  epic-2: in-progress
+  epic-2: done
   2-1-configuration-surface-via-setup: done
   2-2-layout-engine-selection-dot-neato: done
   epic-2-retrospective: optional
