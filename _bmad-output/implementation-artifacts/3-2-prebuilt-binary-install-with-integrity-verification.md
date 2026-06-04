@@ -6,7 +6,7 @@ baseline_commit: 1b60a60c76c8685a9c5d2a33d31c7f1c4ce70f80
 
 # Story 3.2: Prebuilt binary install with integrity verification
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -26,37 +26,37 @@ so that it just works with zero prerequisites and a tampered/corrupt download is
 
 ## Tasks / Subtasks
 
-- [ ] Expand `install.lua` from dev-source resolver to verified prebuilt resolver (AC: 1-4, 6)
-  - [ ] Keep `resolve_server_cmd()` as the public contract used by `server.lua`; return `{ binary_path }` only after verification passes.
-  - [ ] Add internal helpers for project/runtime path resolution, manifest parsing, artifact mapping, checksum calculation, temp download, atomic promotion, chmod, and cleanup.
-  - [ ] Parse root `checksums.txt` with strict `<sha256>  <artifact-name>` lines; reject duplicates, missing mapped artifact, malformed SHA, and unexpected empty manifests.
-  - [ ] Use `vim.fn.sha256(binary_bytes)` for digest calculation and binary-mode reads; do not shell out to `sha256sum`/`shasum`.
-  - [ ] Detect platform with `uname -s` and `uname -m`; map `Darwin` + `x86_64`/`arm64` and `Linux` + `x86_64`/`amd64`/`aarch64`/`arm64`.
-  - [ ] Detect Linux libc so Alpine/dev-containers select `*-musl`; glibc Linux selects non-musl artifacts.
-  - [ ] Unsupported OS/arch/libc combinations must return a structured clear error, not a best-effort wrong artifact.
-- [ ] Implement tag-pinned download and promotion (AC: 2-5)
-  - [ ] Add one explicit release trust root in `install.lua`, e.g. `GITHUB_REPO = "xuyangy/interactive-graphviz.nvim"` and `RELEASE_TAG = "<pinned v-tag>"`; never use `latest`.
-  - [ ] Construct asset URL as `https://github.com/xuyangy/interactive-graphviz.nvim/releases/download/<tag>/<artifact>`.
-  - [ ] Download to a unique temp path from `vim.fn.tempname()`; prefer `curl -fL --retry 3 --output <tmp> <url>` with `wget -O <tmp> <url>` fallback if desired.
-  - [ ] Verify temp checksum before promotion; only then use `vim.uv.fs_rename(tmp, final)` or equivalent atomic rename within the same filesystem.
-  - [ ] Apply executable mode with `vim.uv.fs_chmod(final, 493)` (`0755`) after promotion.
-  - [ ] On macOS, run `xattr -d com.apple.quarantine <final>` when `xattr` exists; tolerate absent attribute but surface real command errors.
-  - [ ] Ensure failed downloads and failed verification remove temp files and never overwrite a known-good installed binary.
-- [ ] Choose and document the binary install location (AC: 2-3)
-  - [ ] Store verified binaries in a plugin-local ignored path such as `dist/bin/<artifact>` or another documented path under this repo/runtime root.
-  - [ ] Do not commit downloaded binaries; confirm `.gitignore` keeps the install output ignored.
-  - [ ] Preserve root `checksums.txt` as the committed source of trust.
-- [ ] Add focused Lua tests for installer behavior (AC: 1-6)
-  - [ ] Add `tests/install_spec.lua` using plain busted-compatible stubs for `vim.fn`, `vim.uv`, and `vim.system` where practical.
-  - [ ] Test artifact mapping for Darwin x64/arm64, Linux glibc x64/arm64, Linux musl x64/arm64, and unsupported Windows/BSD.
-  - [ ] Test manifest parsing rejects malformed lines, duplicate artifacts, missing current artifact, and checksum mismatch.
-  - [ ] Test cache hit returns the verified binary path without invoking download.
-  - [ ] Test corrupt/truncated download does not promote temp path and does not return a runnable command.
-  - [ ] Test macOS quarantine strip invocation after successful promotion.
-  - [ ] Keep existing `server.lua` tests/smoke green; if they stub `install.resolve_server_cmd()`, preserve that seam.
-- [ ] Add minimal documentation or inline completion notes for implementation handoff (AC: 2, 4, 6)
-  - [ ] Document the pinned release tag and how it relates to committed `checksums.txt`.
-  - [ ] Document that source-build fallback remains Story 3.3 and must not be quietly implemented here.
+- [x] Expand `install.lua` from dev-source resolver to verified prebuilt resolver (AC: 1-4, 6)
+  - [x] Keep `resolve_server_cmd()` as the public contract used by `server.lua`; return `{ binary_path }` only after verification passes.
+  - [x] Add internal helpers for project/runtime path resolution, manifest parsing, artifact mapping, checksum calculation, temp download, atomic promotion, chmod, and cleanup.
+  - [x] Parse root `checksums.txt` with strict `<sha256>  <artifact-name>` lines; reject duplicates, missing mapped artifact, malformed SHA, and unexpected empty manifests.
+  - [x] Use `vim.fn.sha256(binary_bytes)` for digest calculation and binary-mode reads; do not shell out to `sha256sum`/`shasum`.
+  - [x] Detect platform with `uname -s` and `uname -m`; map `Darwin` + `x86_64`/`arm64` and `Linux` + `x86_64`/`amd64`/`aarch64`/`arm64`.
+  - [x] Detect Linux libc so Alpine/dev-containers select `*-musl`; glibc Linux selects non-musl artifacts.
+  - [x] Unsupported OS/arch/libc combinations must return a structured clear error, not a best-effort wrong artifact.
+- [x] Implement tag-pinned download and promotion (AC: 2-5)
+  - [x] Add one explicit release trust root in `install.lua`, e.g. `GITHUB_REPO = "xuyangy/interactive-graphviz.nvim"` and `RELEASE_TAG = "<pinned v-tag>"`; never use `latest`.
+  - [x] Construct asset URL as `https://github.com/xuyangy/interactive-graphviz.nvim/releases/download/<tag>/<artifact>`.
+  - [x] Download to a unique temp path from `vim.fn.tempname()`; prefer `curl -fL --retry 3 --output <tmp> <url>` with `wget -O <tmp> <url>` fallback if desired.
+  - [x] Verify temp checksum before promotion; only then use `vim.uv.fs_rename(tmp, final)` or equivalent atomic rename within the same filesystem.
+  - [x] Apply executable mode with `vim.uv.fs_chmod(final, 493)` (`0755`) after promotion.
+  - [x] On macOS, run `xattr -d com.apple.quarantine <final>` when `xattr` exists; tolerate absent attribute but surface real command errors.
+  - [x] Ensure failed downloads and failed verification remove temp files and never overwrite a known-good installed binary.
+- [x] Choose and document the binary install location (AC: 2-3)
+  - [x] Store verified binaries in a plugin-local ignored path such as `dist/bin/<artifact>` or another documented path under this repo/runtime root.
+  - [x] Do not commit downloaded binaries; confirm `.gitignore` keeps the install output ignored.
+  - [x] Preserve root `checksums.txt` as the committed source of trust.
+- [x] Add focused Lua tests for installer behavior (AC: 1-6)
+  - [x] Add `tests/install_spec.lua` using plain busted-compatible stubs for `vim.fn`, `vim.uv`, and `vim.system` where practical.
+  - [x] Test artifact mapping for Darwin x64/arm64, Linux glibc x64/arm64, Linux musl x64/arm64, and unsupported Windows/BSD.
+  - [x] Test manifest parsing rejects malformed lines, duplicate artifacts, missing current artifact, and checksum mismatch.
+  - [x] Test cache hit returns the verified binary path without invoking download.
+  - [x] Test corrupt/truncated download does not promote temp path and does not return a runnable command.
+  - [x] Test macOS quarantine strip invocation after successful promotion.
+  - [x] Keep existing `server.lua` tests/smoke green; if they stub `install.resolve_server_cmd()`, preserve that seam.
+- [x] Add minimal documentation or inline completion notes for implementation handoff (AC: 2, 4, 6)
+  - [x] Document the pinned release tag and how it relates to committed `checksums.txt`.
+  - [x] Document that source-build fallback remains Story 3.3 and must not be quietly implemented here.
 
 ## Dev Notes
 
@@ -150,10 +150,29 @@ GPT-5 Codex
 
 ### Debug Log References
 
+- 2026-06-05T00:02:42+0200: `busted tests/install_spec.lua` unavailable locally (`command not found`); added and exercised tests with a Lua compatibility runner.
+- 2026-06-05T00:07:38+0200: Validation passed: `stylua --check .`, `nvim --headless -i NONE -u tests/minimal_init.lua -l tests/nvim_smoke.lua -c qa`, `bun test server`, installer spec compatibility runner, Lua syntax load, `git diff --check`.
+
+### Implementation Plan
+
+- Replace Bun source resolution with fail-closed prebuilt resolution based on runtime-root `checksums.txt`.
+- Keep downloaded binaries under ignored `dist/bin/<artifact>` and only return the binary command after checksum verification, atomic promotion, chmod, and macOS quarantine handling.
+- Pin downloads to `v0.1.0` GitHub Release assets and leave source-build fallback to Story 3.3.
+
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created.
+- Implemented verified prebuilt resolver for Darwin/Linux glibc/Linux musl artifact mapping.
+- Added strict committed manifest parsing, SHA-256 verification via `vim.fn.sha256`, temp download, atomic promotion, chmod, cleanup, and macOS quarantine stripping.
+- Added focused busted-compatible installer tests for mapping, manifest failures, cache hit, corrupt download refusal, promotion/chmod, and quarantine strip.
+- Documented pinned release tag `v0.1.0`; source-build fallback remains explicitly deferred to Story 3.3.
 
 ### File List
 - `_bmad-output/implementation-artifacts/3-2-prebuilt-binary-install-with-integrity-verification.md`
 - `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- `lua/interactive-graphviz/install.lua`
+- `tests/install_spec.lua`
+
+### Change Log
+
+- 2026-06-05T00:07:38+0200: Completed Story 3.2 implementation and marked ready for review.
