@@ -1,6 +1,6 @@
 import type { ProtocolMessage } from "./protocol";
 import { createWebSocketClient } from "./ws";
-import { queueRender } from "./render";
+import { queueRender, showError } from "./render";
 
 // Debug stash: all inbound envelopes are kept here for inspection.
 // Intentional — reviewed and dismissed in Story 1.3 code review.
@@ -20,7 +20,12 @@ const _wsClient = createWebSocketClient({
       queueRender(dot, engine, v);
     }
   },
-  // error_display and session_closed are stash/log-only until Stories 1.6/1.7.
+  onErrorDisplay(msg) {
+    const message = msg.message as string | undefined;
+    const v = (msg.v as number | undefined) ?? 0;
+    showError(message ?? "unknown error", v);
+  },
+  // session_closed is stash/log-only until Story 1.7.
 });
 
 // Expose the stash for debugging / future render wiring.

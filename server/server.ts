@@ -120,11 +120,11 @@ export function main(): number {
         const session = sessions.subscribe(sessionId, ws);
         ws.data.sessionId = sessionId;
         ws.data.subscribed = true;
-        // Replay the last render to a browser that connects after the first
-        // fan-out (cold-open race). lastRender stores the raw envelope verbatim;
-        // no good/bad distinction yet — that is Story 1.6 (lastGoodDot).
-        if (session.lastRender) {
-          safeSend(ws, JSON.stringify(session.lastRender));
+        // Replay the last cleanly-relayed render to a browser that connects after
+        // the first fan-out (cold-open race). `lastGoodRender` is the last render
+        // envelope that was cleanly dispatched by the server (Story 1.6).
+        if (session.lastGoodRender) {
+          safeSend(ws, JSON.stringify(session.lastGoodRender));
         }
         break;
       }
@@ -195,7 +195,7 @@ export function main(): number {
             safeSend(ws, payload);
           }
           // Store for replay to late-connecting browsers (cold-open race fix).
-          sessions.setLastRender(message.sessionId, message);
+          sessions.setLastGoodRender(message.sessionId, message);
         }
         break;
       }

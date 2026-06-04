@@ -17,10 +17,17 @@ export type Subscriber = ServerWebSocket<SocketData>;
 export interface Session {
   sessionId: number;
   version: number;
-  // Last render envelope received — replayed to a browser that subscribes after
-  // the first fan-out (cold-open race fix). Not lastGoodDot; no good/bad
-  // distinction yet — that is Story 1.6.
-  lastRender?: ProtocolMessage;
+  // Last render envelope that was cleanly relayed — replayed to a browser that
+  // subscribes after the first fan-out (cold-open race fix).
+  //
+  // Semantic note: `lastGoodRender` (server-side) is "last render message that
+  // was cleanly relayed to subscribers." It feeds reconnect/cold-open replay.
+  // The frontend's `lastGoodDot` (render.ts) is "last DOT that actually rendered
+  // without a WASM error." Both are needed and serve different purposes:
+  // the server stores the last dispatched envelope; the browser tracks successful
+  // rendering. A DOT that triggers a WASM error will be in `lastGoodRender` but
+  // NOT in the frontend's `lastGoodDot`.
+  lastGoodRender?: ProtocolMessage;
   // Live WebSocket subscribers for this session.
   subscribers: Set<Subscriber>;
 }
@@ -73,11 +80,11 @@ export class SessionRegistry {
     return this.sessions.get(sessionId)?.subscribers ?? [];
   }
 
-  /** Store the last render envelope for cold-open replay. Mutation lives here. */
-  setLastRender(sessionId: number, render: ProtocolMessage): void {
+  /** Store the last cleanly-relayed render envelope for cold-open replay. */
+  setLastGoodRender(sessionId: number, render: ProtocolMessage): void {
     const session = this.sessions.get(sessionId);
     if (session) {
-      session.lastRender = render;
+      session.lastGoodRender = render;
     }
   }
 }

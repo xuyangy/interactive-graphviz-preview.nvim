@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, test, beforeEach } from "bun:test";
-import { createRenderQueue } from "../frontend/render-queue";
+import { createRenderQueue, type RenderQueueOpts } from "../frontend/render-queue";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -187,5 +187,91 @@ describe("render-queue: _resetForTest", () => {
     await sleep(10);
     expect(rendered).toEqual(["digraph{v5}", "digraph{v3}"]);
     expect(q2._lastAppliedV()).toBe(3);
+  });
+});
+
+describe("render-queue: error overlay hooks", () => {
+  let errorCalls: Array<{ err: unknown; v: number }>;
+  let successCalls: Array<number>;
+  let opts: RenderQueueOpts;
+
+  beforeEach(() => {
+    errorCalls = [];
+    successCalls = [];
+    opts = {
+      onError(err, v) {
+        errorCalls.push({ err, v });
+      },
+      onSuccess(v) {
+        successCalls.push(v);
+      },
+    };
+  });
+
+  test("onError callback is called with the correct err and v when renderFn rejects", async () => {
+    const expectedErr = new Error("wasm parse error");
+    const fn = (_dot: string, _engine: string): Promise<void> => Promise.reject(expectedErr);
+    const q = createRenderQueue(fn, opts);
+    q._resetForTest();
+
+    q.queueRender("digraph{broken}", "dot", 7);
+    await sleep(20);
+
+    expect(errorCalls).toHaveLength(1);
+    expect(errorCalls[0].err).toBe(expectedErr);
+    expect(errorCalls[0].v).toBe(7);
+  });
+
+  test("onSuccess callback is called with the correct v on successful render", async () => {
+    const { fn } = makeMockRenderer();
+    const q = createRenderQueue(fn, opts);
+    q._resetForTest();
+
+    q.queueRender("digraph{ok}", "dot", 3);
+    await sleep(20);
+
+    expect(successCalls).toEqual([3]);
+    expect(errorCalls).toHaveLength(0);
+  });
+
+  test("onError is called on synchronous throw from renderFn", () => {
+    const syncErr = new Error("sync boom");
+    const fn = (_dot: string, _engine: string): Promise<void> => {
+      throw syncErr;
+    };
+    const q = createRenderQueue(fn, opts);
+    q._resetForTest();
+
+    q.queueRender("digraph{v1}", "dot", 5);
+
+    // Sync throw — onError fires synchronously, no await needed.
+    expect(errorCalls).toHaveLength(1);
+    expect(errorCalls[0].err).toBe(syncErr);
+    expect(errorCalls[0].v).toBe(5);
+  });
+
+  test("onError is NOT called on successful renders", async () => {
+    const { fn } = makeMockRenderer();
+    const q = createRenderQueue(fn, opts);
+    q._resetForTest();
+
+    q.queueRender("digraph{a}", "dot", 1);
+    q.queueRender("digraph{b}", "dot", 2);
+    await sleep(30);
+
+    expect(errorCalls).toHaveLength(0);
+  });
+
+  test("onSuccess is NOT called on failed renders", async () => {
+    const fn = (_dot: string, _engine: string): Promise<void> =>
+      Promise.reject(new Error("parse fail"));
+    const q = createRenderQueue(fn, opts);
+    q._resetForTest();
+
+    q.queueRender("digraph{bad}", "dot", 9);
+    await sleep(20);
+
+    expect(successCalls).toHaveLength(0);
+    expect(errorCalls).toHaveLength(1);
   });
 });

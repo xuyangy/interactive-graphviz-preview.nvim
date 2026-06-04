@@ -1,12 +1,14 @@
 /**
  * Pure v-guard + render-lock state machine for live reload (FR-7).
  * No d3-graphviz / @hpcc-js/wasm-graphviz import — those live in render.ts only.
- *
- * SEAM (Story 1.6): pass render errors to the error overlay instead of
- * logging + discarding. The renderFn rejection path is where that hooks in.
  */
 
 export type RenderFn = (dot: string, engine: string) => Promise<void>;
+
+export interface RenderQueueOpts {
+  onError?: (err: unknown, v: number) => void;
+  onSuccess?: (v: number) => void;
+}
 
 interface QueueEntry {
   dot: string;
@@ -14,7 +16,7 @@ interface QueueEntry {
   v: number;
 }
 
-export function createRenderQueue(renderFn: RenderFn) {
+export function createRenderQueue(renderFn: RenderFn, opts?: RenderQueueOpts) {
   let inFlight = false;
   let lastAppliedV = 0;
   let pending: QueueEntry | null = null;
@@ -27,6 +29,7 @@ export function createRenderQueue(renderFn: RenderFn) {
     } catch (syncErr) {
       // renderFn threw synchronously before returning a Promise — treat as rejection
       // so the queue does not lock up permanently.
+      opts?.onError?.(syncErr, entry.v);
       console.error("interactive-graphviz: render error (sync throw)", syncErr);
       inFlight = false;
       if (pending !== null) {
@@ -43,10 +46,13 @@ export function createRenderQueue(renderFn: RenderFn) {
         // v-guard on completion: only advance if this render is still the latest.
         if (entry.v >= lastAppliedV) {
           lastAppliedV = entry.v;
+          // Only fire onSuccess for non-stale renders — a stale success must not
+          // clear an error overlay that belongs to a newer, still-errored render.
+          opts?.onSuccess?.(entry.v);
         }
       })
       .catch((err: unknown) => {
-        // Error overlay is Story 1.6 — log for now.
+        opts?.onError?.(err, entry.v);
         console.error("interactive-graphviz: render error", err);
       })
       .finally(() => {

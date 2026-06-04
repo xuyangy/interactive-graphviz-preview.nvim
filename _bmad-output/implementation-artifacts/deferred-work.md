@@ -27,3 +27,9 @@
 - `vim.uv.new_timer()` return value unchecked for nil — pre-existing pattern from server.lua heartbeat; applies to render.lua debounce as well. Add nil guard if low-memory robustness is needed. [lua/interactive-graphviz/render.lua:38]
 - Re-calling `start_watch` on an already-watched buffer leaves previous debounce timer alive (mitigated by timer-identity guard, practically safe). Story 1.7 could add `stop_watch` before `start_watch` in a re-open scenario for cleanliness. [lua/interactive-graphviz/render.lua:59-68]
 
+## Deferred from: code review of story 1-6-error-resilience-and-view-preservation (2026-06-04)
+
+- Unicode surrogate-pair split in `extractMessage` at the 200-char boundary — JavaScript `slice` operates on UTF-16 code units and can split emoji/CJK surrogate pairs. Low-probability cosmetic issue. [frontend/render.ts:56]
+- Server `lastGoodRender` stores every dispatched render envelope including broken-DOT ones; the "last good render" for reconnecting browsers is only truly filtered at the frontend's `lastGoodDot`. AC5 is partially addressed — the rename improves naming but cold-open replay can still serve broken DOT. True fix requires the server to track render success/failure, which is architecturally out of scope (WASM errors are browser-side). [server/sessions.ts, server/server.ts]
+- `config.get().preserve_view` not read at render time in `render.ts`; `captureViewState`/`restoreViewState` exported from `viewstate.ts` are not called from the render path. Zoom/pan preservation deferred by AC4 scope guard; wire these when a clean d3-graphviz integration path is available. [frontend/render.ts, frontend/viewstate.ts]
+

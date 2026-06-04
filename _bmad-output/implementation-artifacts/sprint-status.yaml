@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-02T19:07:07+0200
-last_updated: 2026-06-04T18:00:00+0200
+last_updated: 2026-06-04T22:30:00+0200
 project: interactive-graphviz.nvim
 project_key: NOKEY
 tracking_system: file-system
@@ -48,7 +48,7 @@ development_status:
   1-3-message-protocol-and-websocket-relay: done
   1-4-open-preview-and-first-render: done
   1-5-live-reload-on-buffer-change: done
-  1-6-error-resilience-and-view-preservation: backlog
+  1-6-error-resilience-and-view-preservation: done
   1-7-stop-toggle-and-lifecycle-cleanup: backlog
   epic-1-retrospective: optional
   epic-2: backlog

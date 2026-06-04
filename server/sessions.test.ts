@@ -74,4 +74,31 @@ describe("SessionRegistry", () => {
     const reg = new SessionRegistry();
     expect([...reg.subscribersOf(123)]).toEqual([]);
   });
+
+  test("setLastGoodRender stores the render envelope on the session", () => {
+    const reg = new SessionRegistry();
+    const session = reg.register(10);
+    const envelope = { type: "render", sessionId: 10, dot: "digraph{a}", engine: "dot", v: 1 };
+    reg.setLastGoodRender(10, envelope);
+    expect(session.lastGoodRender).toBe(envelope);
+  });
+
+  test("setLastGoodRender is a no-op for an unknown session", () => {
+    const reg = new SessionRegistry();
+    // Should not throw.
+    reg.setLastGoodRender(999, { type: "render", sessionId: 999, dot: "digraph{a}", engine: "dot", v: 1 });
+    expect(reg.has(999)).toBe(false);
+  });
+
+  test("setLastGoodRender + subscribersOf still work after rename (cold-open replay)", () => {
+    const reg = new SessionRegistry();
+    const ws = fakeSocket();
+    const session = reg.subscribe(5, ws);
+    const envelope = { type: "render", sessionId: 5, dot: "digraph{b}", engine: "dot", v: 2 };
+    reg.setLastGoodRender(5, envelope);
+    // Replay: the stored envelope can be read back.
+    expect(session.lastGoodRender).toBe(envelope);
+    // Subscribers still intact.
+    expect([...reg.subscribersOf(5)]).toHaveLength(1);
+  });
 });
