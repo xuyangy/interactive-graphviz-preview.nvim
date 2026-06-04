@@ -5,7 +5,7 @@ created: 2026-06-04T23:29:45+0200
 
 # Story 2.2: Layout engine selection (dot/neato)
 
-Status: review
+Status: done
 
 ## Story
 
@@ -57,6 +57,10 @@ so that I can get a more readable arrangement.
     - empty args reports current/available engines and sends nothing.
   - [x] Add or extend a TS test proving engine argument is preserved by `createRenderQueue` and/or that `Graphviz.load().layout(..., "svg", "neato")` remains green. `server/render.test.ts` already has a `neato` WASM gate.
   - [x] Keep stubs local to each test file. Follow existing `package.loaded[...]` injection patterns in `tests/commands_spec.lua` and `tests/config_spec.lua`.
+
+### Review Findings
+
+- [x] [Review][Patch] Active engine switch skipped server startup queue path [lua/interactive-graphviz/commands.lua:167]
 
 ## Dev Notes
 
@@ -147,6 +151,7 @@ gpt-5-codex
 - 2026-06-04T23:34:40+0200 - Story 2.2 moved from ready-for-dev to in-progress; baseline_commit preserved as f9f70ab.
 - 2026-06-04T23:38:49+0200 - Busted unavailable locally; Lua specs validated with inline Busted-compatible harness.
 - 2026-06-04T23:38:49+0200 - Bun server/e2e suites required unsandboxed execution for local server spawn/bind tests.
+- 2026-06-04T23:49:41+0200 - Code review found active-session engine switches only sent render after `ready`; fixed to use server liveness so pre-ready renders queue correctly.
 
 ### Completion Notes List
 
@@ -159,6 +164,7 @@ gpt-5-codex
 - Confirmed protocol/server/frontend guardrails: reused existing `render` envelope and did not add a new server message path or mutate server session state.
 - Added Lua command/config coverage and a pure render queue TS test proving selected engine propagation.
 - Validations passed: `stylua --check lua/ tests/commands_spec.lua tests/config_spec.lua`; `nvim --headless -i NONE -u tests/minimal_init.lua -l tests/nvim_smoke.lua -c qa`; Lua unit specs via inline harness; `bun test server`; `bun test tests/e2e/render.spec.ts`.
+- Code review patch applied: active startup sessions now send a fresh queued render after `:GraphvizEngine`, preserving selected engine through server readiness.
 
 ### File List
 

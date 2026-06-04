@@ -167,7 +167,7 @@ function M.engine(opts)
   local bufnr = vim.api.nvim_get_current_buf()
   local session = require("interactive-graphviz.session")
   local server = require("interactive-graphviz.server")
-  if not (session.has(bufnr) and server.state.running) then
+  if not (session.has(bufnr) and server.is_running()) then
     return
   end
 

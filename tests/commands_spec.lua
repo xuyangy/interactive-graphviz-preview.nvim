@@ -100,6 +100,12 @@ local function make_server(opts)
     table.insert(self.send_calls, msg)
     return true
   end
+  self.is_running = function()
+    if opts.is_running ~= nil then
+      return opts.is_running
+    end
+    return self.state.running
+  end
   -- Immediately call fn (server already running). Captures url inside the callback.
   self.on_ready = function(fn)
     table.insert(self.on_ready_calls, fn)
@@ -685,6 +691,30 @@ describe("commands.engine", function()
 
     assert.are.equal("neato", config.get().engine)
     assert.are.equal(0, #server.send_calls)
+    assert.are.equal(0, #server.open_session_calls)
+  end)
+
+  it("valid engine with active starting server queues a fresh render", function()
+    local bufnr = 25
+    local server =
+      make_server({ state = { running = false, port = nil, token = nil }, is_running = true })
+    local config = make_config("dot")
+    local cmd = load_commands(
+      make_vim({ filetype = "dot", bufnr = bufnr, lines = { "digraph{queued}" } }),
+      server,
+      make_session({ active = { [bufnr] = true } }),
+      config,
+      make_log()
+    )
+
+    cmd.engine({ args = "neato" })
+
+    assert.are.equal("neato", config.get().engine)
+    assert.are.equal(1, #server.send_calls)
+    assert.are.equal("render", server.send_calls[1].type)
+    assert.are.equal(bufnr, server.send_calls[1].sessionId)
+    assert.are.equal("neato", server.send_calls[1].engine)
+    assert.are.equal("digraph{queued}", server.send_calls[1].dot)
     assert.are.equal(0, #server.open_session_calls)
   end)
 
