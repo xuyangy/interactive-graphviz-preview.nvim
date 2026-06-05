@@ -69,8 +69,9 @@ Open a DOT/GV file (`filetype=dot`) and run:
 | `:GraphvizPreviewToggle` | Start if stopped, stop if running. |
 | `:GraphvizEngine [engine]` | With no argument, report the current and available engines. With an argument (e.g. `:GraphvizEngine neato`), switch the layout engine and re-render. |
 
-Edits to the buffer re-render automatically (debounced). The view (zoom/pan) is
-preserved across reloads by default.
+Edits to the buffer re-render automatically (debounced, latest-wins). On a bad
+graph the last good render is kept and an error is shown rather than blanking
+the preview.
 
 ## Configuration
 
@@ -84,7 +85,7 @@ require("interactive-graphviz").setup({
   port = 0,                  -- listen port; 0 = ephemeral (OS-assigned)
   expose_to_lan = false,     -- false = bind 127.0.0.1; true = bind 0.0.0.0 (see Security)
   open_cmd = nil,            -- nil = vim.ui.open; or a command string, e.g. "firefox"
-  preserve_view = true,      -- keep zoom/pan across live reloads
+  preserve_view = true,      -- reserved: zoom/pan preservation across reloads is not yet wired
   heartbeat_ms = 2000,       -- supervision heartbeat interval (ms), > 0
   log_level = "warn",        -- off | error | warn | info | debug
 })
