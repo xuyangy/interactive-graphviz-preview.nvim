@@ -228,12 +228,52 @@ local function expected_checksum(manifest, artifact)
   return checksum
 end
 
-local function digest_file(path)
-  local data, err = read_binary(path)
-  if not data then
-    return nil, err
+-- Pull the first 64-hex (SHA-256) token out of a hashing tool's stdout. Works for
+-- `sha256sum`/`shasum` ("<hash>  <path>") and `openssl dgst` ("...= <hash>").
+local function extract_sha256(text)
+  for token in tostring(text):gmatch("%x+") do
+    if #token == 64 then
+      return token:lower()
+    end
   end
-  return vim.fn.sha256(data)
+  return nil
+end
+
+-- SHA-256 of a file's bytes. We deliberately do NOT use vim.fn.sha256: Neovim
+-- converts a Lua string containing NUL bytes into a Blob at the Lua/Vimscript
+-- boundary, and sha256() rejects a Blob ("E976: Using a Blob as a String"), so it
+-- cannot hash a real (NUL-containing) binary at all. Shell out (list-form, no shell
+-- string) to a standard tool instead; its hex digest matches the Node crypto digests
+-- committed in checksums.txt. Returns nil on a missing file (treated as a cache miss).
+local function digest_file(path)
+  if vim.fn.filereadable(path) ~= 1 then
+    return nil, "not readable: " .. tostring(path)
+  end
+
+  local candidates = {
+    { "sha256sum", path },
+    { "shasum", "-a", "256", path },
+    { "openssl", "dgst", "-sha256", path },
+  }
+
+  local tried = false
+  for _, cmd in ipairs(candidates) do
+    if vim.fn.executable(cmd[1]) == 1 then
+      tried = true
+      local result = run(cmd, { text = true })
+      if result.code == 0 then
+        local hex = extract_sha256(result.stdout)
+        if hex then
+          return hex
+        end
+      end
+    end
+  end
+
+  if tried then
+    return nil, "SHA-256 tool failed to produce a digest for " .. tostring(path)
+  end
+  return nil, "no SHA-256 tool found on PATH (need sha256sum, shasum, or openssl)"
 end
 
 local function verify_file(path, expected, artifact)
@@ -575,6 +615,8 @@ M._test = {
   parse_manifest = parse_manifest,
   expected_checksum = expected_checksum,
   verify_file = verify_file,
+  digest_file = digest_file,
+  extract_sha256 = extract_sha256,
   release_url = release_url,
   parse_semver = parse_semver,
   semver_at_least = semver_at_least,

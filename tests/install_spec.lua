@@ -39,7 +39,14 @@ local function load_install(opts)
     },
     fn = {
       executable = function(cmd)
-        return executable[cmd] or 0
+        if executable[cmd] ~= nil then
+          return executable[cmd]
+        end
+        -- SHA-256 tools are host utilities; assume present unless a test disables them.
+        if cmd == "sha256sum" or cmd == "shasum" or cmd == "openssl" then
+          return 1
+        end
+        return 0
       end,
       mkdir = function(path, _)
         os.execute("mkdir -p " .. path)
@@ -118,6 +125,16 @@ local function load_install(opts)
         if code == 0 and not opts.bun_build_no_output then
           write_file(cmd[6], opts.bun_build_data or "fallback-binary")
         end
+      elseif name == "sha256sum" or name == "shasum" or name == "openssl" then
+        -- Model a real SHA-256 tool: emit the (fake) digest of the file's bytes
+        -- in `<hash>  <path>` form so digest_file's extractor finds it.
+        local target = cmd[#cmd]
+        local file = io.open(target, "rb")
+        local contents = file and file:read("*a") or ""
+        if file then
+          file:close()
+        end
+        stdout = sha256(contents) .. "  " .. target
       end
       return {
         wait = function()
@@ -463,5 +480,52 @@ describe("source-build fallback for unsupported platforms", function()
     assert.is_true(install._test.semver_at_least({ 1, 4, 0 }, { 1, 3, 10 }))
     assert.is_false(install._test.semver_at_least({ 1, 3, 9 }, { 1, 3, 10 }))
     assert.is_false(install._test.semver_at_least({ 0, 9, 0 }, { 1, 3, 10 }))
+  end)
+end)
+
+-- Regression for E976: vim.fn.sha256 cannot hash binaries (a Lua string with NUL
+-- bytes becomes a Blob, which sha256() rejects). This test drives the REAL host
+-- SHA-256 tool over NUL-containing bytes, so reverting digest_file to vim.fn.sha256
+-- (absent from this vim stub) would fail here.
+describe("digest_file hashes real binary bytes", function()
+  after_each(function()
+    package.loaded["interactive-graphviz.install"] = nil
+    _G.vim = nil
+  end)
+
+  it("computes the SHA-256 of NUL-containing content via a real tool", function()
+    local root = assert(io.popen("mktemp -d")):read("*l")
+    local path = root .. "/bin-with-nul"
+    write_file(path, "abc\0def\0\0\1\2\3xyz\0")
+
+    local expected = assert(io.popen("shasum -a 256 " .. path):read("*l")):match("^(%x+)")
+
+    package.loaded["interactive-graphviz.install"] = nil
+    _G.vim = {
+      fn = {
+        executable = function(cmd)
+          return (cmd == "sha256sum" or cmd == "shasum" or cmd == "openssl") and 1 or 0
+        end,
+        filereadable = function(p)
+          local f = io.open(p, "rb")
+          if f then
+            f:close()
+            return 1
+          end
+          return 0
+        end,
+      },
+      system = function(cmd)
+        local out = assert(io.popen(table.concat(cmd, " "))):read("*a")
+        return {
+          wait = function()
+            return { code = 0, stdout = out, stderr = "" }
+          end,
+        }
+      end,
+    }
+
+    local install = require("interactive-graphviz.install")
+    assert.are.equal(expected:lower(), install._test.digest_file(path))
   end)
 end)
