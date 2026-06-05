@@ -58,5 +58,5 @@ development_status:
   epic-3: in-progress
   3-1-cross-compiled-release-pipeline-with-checksums: done
   3-2-prebuilt-binary-install-with-integrity-verification: done
-  3-3-source-build-fallback-failure-ux-and-health-check: review
+  3-3-source-build-fallback-failure-ux-and-health-check: done
   epic-3-retrospective: optional

@@ -6,7 +6,7 @@ baseline_commit: 5be643beae330c1822e7d0329b4de8a2eef0ae84
 
 # Story 3.3: Source-build fallback, failure UX, and health check
 
-Status: review
+Status: done
 
 ## Story
 
@@ -192,3 +192,4 @@ GPT-5 Codex (story authoring) / Claude Opus 4.8 (implementation)
 ### Change Log
 
 - 2026-06-05: Implemented source-build fallback, install failure UX, Lua `:checkhealth` diagnostics, and server `/health` endpoint; added focused Lua + TS tests and a busted-free local test shim. Story moved in-progress → review.
+- 2026-06-05: Code review PASS. All 9 ACs verified. Adversarial checks confirmed: no-orphan model preserved (fallback returns compiled executable, no `bun run` wrapper); atomic promote + temp cleanup on build failure; fallback never downloads; prebuilt cache-hit requires no Bun; `/health` uses HTTP `Response.json` and never touches the stdout protocol channel (asserted by live-route test). Validation: 19/19 Lua specs (install+health via busted-compat shim under plain lua), `bun test server` 63/63, `stylua --check .` clean, `git diff --check` clean, headless nvim smoke + real-host `:checkhealth` both pass. No code patches required. Informational only (not introduced by this story, out of scope): server TS files have no `tsconfig.json`/`package.json`, so editors flag unresolved Bun globals (`process`/`Bun`/`Buffer`/`bun:test`/`import.meta`); this is pre-existing harmless Bun-runtime LSP noise — a proper fix would require an npm/bun-types install that violates the project's zero-toolchain invariant and this story's "no new package manager/runtime dependency" boundary. Story moved review → done.
