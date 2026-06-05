@@ -18,13 +18,18 @@ import { createRenderQueue } from "./render-queue";
 export function renderDot(dot: string, engine: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     try {
+      // d3-graphviz error handling is the dedicated `.onerror()` method — NOT
+      // `.on("error", …)`. The `.on()` event system only knows the render
+      // lifecycle types (start/layout/render/transition/end); registering an
+      // "error" listener there makes d3-dispatch throw "unknown type: error"
+      // synchronously, failing every render before the DOT is even parsed.
       graphviz("#app")
         .engine(engine)
-        .on("end", () => resolve())
-        .on("error", (err: unknown) => {
+        .onerror((err: unknown) => {
           console.error("interactive-graphviz: render error", err);
           reject(err instanceof Error ? err : new Error(String(err)));
         })
+        .on("end", () => resolve())
         .renderDot(dot);
     } catch (err) {
       console.error("interactive-graphviz: render error (sync)", err);
