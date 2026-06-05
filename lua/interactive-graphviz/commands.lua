@@ -87,6 +87,7 @@ function M.preview()
       return
     end
     local url = string.format("http://127.0.0.1:%d/?sessionId=%d&token=%s", port, bufnr, token)
+    log.notify("GraphvizPreview: serving at " .. url, vim.log.levels.INFO)
     local open_cmd = config.get().open_cmd
     if open_cmd then
       local parts = vim.split(open_cmd, "%s+", { trimempty = true })
