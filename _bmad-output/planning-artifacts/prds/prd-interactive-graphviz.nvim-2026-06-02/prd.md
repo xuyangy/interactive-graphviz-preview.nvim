@@ -173,6 +173,40 @@ and surfaces that an error occurred.
 - A render error preserves the previously rendered Graph in view.
 - The user is informed a render failed (message/indicator).
 
+### 4.5 Interactivity *(v2 — added 2026-06-07; parity target)*
+**Description:** The user interacts with the rendered Graph the way the plugin's name promises —
+highlight neighbors, search, and zoom/pan/reset — reaching parity with `vscode-interactive-graphviz`.
+All interactions are **frontend-local** (operate on the already-rendered SVG client-side; no server
+round-trip, no new install prerequisites). Realizes the "interactive" promise; see §6 MVP Scope (v2).
+
+**Functional Requirements:**
+
+#### FR-15: Zoom/pan & reset view
+A user can zoom and pan the Graph and reset it to fit; view-state is preserved across live-reload.
+**Consequences (testable):**
+- Zoom/pan operate smoothly on the rendered SVG; a reset affordance returns to fit-to-viewport.
+- With `preserve_view` enabled, the zoom/pan transform survives a re-render (wires the existing
+  `preserve_view` config); with it disabled, the view resets on reload.
+
+#### FR-16: Click-to-highlight neighbors
+Clicking a node highlights it and its neighbors; the highlight relation is configurable.
+**Consequences (testable):**
+- Highlight modes: single / upstream / downstream / bidirectional (config `highlight_mode`).
+- Cluster highlight, multi-select (Shift+click), and ESC-to-clear are supported.
+- Non-matching elements are dimmed; clearing restores the full Graph.
+
+#### FR-17: Live search
+A user can search nodes/edges by label and see matches highlighted.
+**Consequences (testable):**
+- Case-sensitive and regex toggles; search scope respected; a result counter shows match count.
+- Matches are highlighted and non-matches dimmed.
+
+#### FR-18: Animated transitions
+Highlight changes and re-renders animate smoothly; config-gated.
+**Consequences (testable):**
+- Transitions use d3-graphviz; a non-animated fallback exists.
+- Interactions stay responsive without perceptible lag (NFR-7).
+
 ### 4.3 Installation and distribution
 **Description:** The plugin installs with no runtime Node/yarn and no system Graphviz, via a
 per-platform Prebuilt binary, with a Build-from-source fallback for uncovered platforms.
@@ -228,12 +262,15 @@ and best-effort view preservation.
 - Idiomatic configuration surface with safe defaults (FR-14).
 - Docs that set expectations and point to recommended companions for language features.
 
+### 6.1b In Scope (v2 — added 2026-06-07)
+- **Interactivity layer (parity target):** click-to-highlight neighbors, live search, zoom/pan +
+  reset, multi-select, ESC-clear, animated transitions (FR-15–FR-18). Frontend-local; adds no
+  install prerequisites (preserves SM-C1). Delivered by Epic 5; see `sprint-change-proposal-2026-06-07.md`.
+- **v1 hardening (user-facing slice):** the triaged `deferred-work.md` defects + Windows no-orphan
+  verification. Delivered by Epic 4.
+
 ### 6.2 Out of Scope for MVP
-- **Interactivity layer** — click node → highlight neighbors (single/upstream/downstream/
-  bidirectional), cluster highlight, multi-select, ESC-clear, zoom/pan + reset view, live search
-  (case-sensitive/regex/scope/result-counter), animated transitions. *Deferred to v2 (parity
-  target).* `[NOTE FOR PM: this is the "interactive" promise in the name — revisit timing right
-  after v1 lands; it is emotionally load-bearing.]`
+- ~~**Interactivity layer**~~ — **promoted to v2 scope (§6.1b, FR-15–FR-18) on 2026-06-07.**
 - **Auto-open Preview on DOT file open.** v1 is command-started only; revisit after the manual
   lifecycle is stable.
 - **Export SVG / Export DOT from the Preview.** Deferred until after the live preview loop and
@@ -297,6 +334,9 @@ post-v1 hardening decision.
   for Linux + macOS (x64/arm64); source-build fallback elsewhere.
 - **NFR-6 (Render fidelity):** The rendered Graph matches Graphviz semantics for valid DOT (parity
   with the `d3-graphviz`/WASM reference renderer).
+- **NFR-7 (Interaction responsiveness — v2):** Highlight, search, and zoom/pan respond without
+  perceptible lag. All interactions are **frontend-local** (no server round-trip), preserving NFR-1
+  and SM-C1 — interactivity adds no install prerequisites.
 
 ## Dependency & Runtime Targets
 - **Editor:** Neovim 0.10+.
