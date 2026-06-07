@@ -182,7 +182,9 @@ local function plugin_root()
   if not manifest_path then
     fail("could not locate committed checksums.txt on runtimepath")
   end
-  local root = manifest_path:gsub("/checksums%.txt$", "")
+  -- Strip the trailing separator + filename. Match BOTH `/` and `\` so this works
+  -- on Windows, where nvim_get_runtime_file returns a backslash path.
+  local root = manifest_path:gsub("[/\\]checksums%.txt$", "")
   if root == manifest_path then
     fail("could not derive plugin root from checksums.txt path")
   end
