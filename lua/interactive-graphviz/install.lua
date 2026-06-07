@@ -214,6 +214,9 @@ local function parse_manifest(manifest_path)
   while pos <= #content do
     local newline = content:find("\n", pos, true)
     local line = newline and content:sub(pos, newline - 1) or content:sub(pos)
+    -- Tolerate CRLF: a Windows checkout (core.autocrlf) leaves a trailing \r that
+    -- would otherwise break the anchored line match below.
+    line = (line:gsub("\r$", ""))
     line_no = line_no + 1
     if line == "" then
       fail("malformed checksum line " .. line_no .. " in checksums.txt")
