@@ -19,6 +19,11 @@ $ErrorActionPreference = "Stop"
 $root = (Resolve-Path "$PSScriptRoot\..\..").Path
 Set-Location $root
 
+if (-not (Get-Command nvim -ErrorAction SilentlyContinue)) {
+  Write-Host "FAIL: nvim not found on PATH"
+  exit 2
+}
+
 $pidFile = Join-Path $env:TEMP ("ig_orphan_" + [System.Guid]::NewGuid().ToString("N") + ".pid")
 if (Test-Path $pidFile) { Remove-Item $pidFile -Force }
 $env:IG_PID_FILE = $pidFile

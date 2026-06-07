@@ -271,6 +271,12 @@ local function digest_file(path)
     { "sha256sum", path },
     { "shasum", "-a", "256", path },
     { "openssl", "dgst", "-sha256", path },
+    -- Native Windows fallback: GitHub windows runners and end-user Windows hosts
+    -- may ship none of the above on PATH, but certutil is always present. Tried
+    -- last so POSIX hosts never reach it (and an NSS `certutil` on Linux, which
+    -- lacks `-hashfile`, just fails its run and falls through). Modern certutil
+    -- prints a continuous 64-hex digest that extract_sha256 picks up.
+    { "certutil", "-hashfile", path, "SHA256" },
   }
 
   local tried = false
@@ -290,7 +296,7 @@ local function digest_file(path)
   if tried then
     return nil, "SHA-256 tool failed to produce a digest for " .. tostring(path)
   end
-  return nil, "no SHA-256 tool found on PATH (need sha256sum, shasum, or openssl)"
+  return nil, "no SHA-256 tool found on PATH (need sha256sum, shasum, openssl, or certutil)"
 end
 
 local function verify_file(path, expected, artifact)

@@ -5,6 +5,10 @@
 > Unmarked items remain documented debt (theoretical/style; revisit as needed).
 > See `../planning-artifacts/sprint-change-proposal-2026-06-07.md`.
 
+## Deferred from: code review of story 4-1-user-facing-hardening-pass (2026-06-07)
+
+- `install_spec.lua`, `config_spec.lua`, `lifecycle_spec.lua`, and `health_spec.lua` are not in the CI busted line (`.github/workflows/ci.yml` runs only scaffold/session/commands/render specs + the orphan integration). New unit tests added to those files — e.g. the Story 4.1 `extract_sha256` certutil-output test — are therefore not CI-gated. Pre-existing coverage gap; wire these specs into CI (or add a `.busted` config that discovers all `tests/*_spec.lua`). [.github/workflows/ci.yml:36]
+
 ## Deferred from: code review of story 1-2-server-spawn-and-no-orphan-supervision (2026-06-03)
 
 - Unbounded `stdout_buf` (Lua) / `LineBuffer` (TS) growth on a newline-less huge line. Trusted local channel; add a max-line cap that drops + diagnoses an over-long unterminated buffer. [lua/interactive-graphviz/server.lua:206, server/stdio.ts]

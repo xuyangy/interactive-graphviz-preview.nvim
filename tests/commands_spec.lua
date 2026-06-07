@@ -465,10 +465,12 @@ describe("commands.preview idempotency (pre-ready N-tabs)", function()
     -- Session registers on open_session, mirroring production (server.open_session
     -- calls session.register synchronously) so session.has(bufnr) becomes true.
     local session_mod = make_session({ active = active })
-    -- Server is still STARTING: state.running == false, and on_ready QUEUES the
-    -- callback (does not fire) until `ready` — the real pre-ready behavior that
-    -- the immediate-fire stub elsewhere does not exercise.
-    local server = make_server({ state = { running = false, port = nil, token = nil } })
+    -- Server is still STARTING: `ready` not yet received (state.running == false)
+    -- but the process is alive (is_running() == true, handle present). on_ready
+    -- QUEUES the callback (does not fire) until `ready` — the real pre-ready
+    -- behavior that the immediate-fire stub elsewhere does not exercise.
+    local server =
+      make_server({ state = { running = false, port = nil, token = nil }, is_running = true })
     server.open_session = function(b)
       table.insert(server.open_session_calls, b)
       active[b] = true
@@ -497,6 +499,35 @@ describe("commands.preview idempotency (pre-ready N-tabs)", function()
     assert.are.equal(1, server.send_calls[1].v)
     assert.are.equal(2, server.send_calls[2].v)
     assert.are.equal(3, server.send_calls[3].v)
+  end)
+
+  it("preview() after the server has died re-spawns instead of silently no-op'ing", function()
+    local bufnr = 31
+    -- A session record lingers from a prior preview; the Lua-side cache is NOT
+    -- cleared when the server crashes (only on stop / VimLeavePre).
+    local active = { [bufnr] = true }
+    local session_mod = make_session({ active = active })
+    -- Server has exited: is_running() == false even though session.has is true.
+    local server = make_server({ state = { running = false }, is_running = false })
+
+    local cmd = load_commands(
+      make_vim({ filetype = "dot", bufnr = bufnr }),
+      server,
+      session_mod,
+      make_config(),
+      make_log()
+    )
+
+    cmd.preview()
+
+    -- Guard must NOT fire (is_running false) — fall through to the re-spawn path
+    -- rather than re-sending into a dead server. Regression guard for the broadened
+    -- idempotency check (must distinguish "starting" from "dead").
+    assert.are.equal(
+      1,
+      #server.open_session_calls,
+      "a dead server must be re-spawned via open_session"
+    )
   end)
 end)
 

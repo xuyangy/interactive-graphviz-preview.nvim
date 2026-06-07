@@ -70,6 +70,9 @@ export function showError(err: unknown, v: number): void {
   // message), use it as-is without the "DOT parse error" prefix. Error objects
   // and other unknowns are formatted with the "DOT parse error" prefix since
   // they always originate from the WASM renderer.
+  // An error supersedes the empty-buffer notice — they are mutually exclusive
+  // informational surfaces, never shown together.
+  clearEmptyNotice();
   const msg = extractMessage(err);
   const text = typeof err === "string" ? `Error (v${v}): ${msg}` : `DOT parse error (v${v}): ${msg}`;
   let overlay = document.getElementById("ig-error-overlay");
@@ -102,6 +105,9 @@ export function clearError(_v: number): void {
 // screen; on an initial empty buffer #app is empty anyway and this tells the user
 // why. Cleared as soon as a real (non-blank) render is dispatched.
 export function showEmptyNotice(v: number): void {
+  // The empty-buffer state is informational, not an error — clear any error
+  // overlay so the two are never shown together.
+  clearError(v);
   let el = document.getElementById("ig-empty-notice");
   if (!el) {
     el = document.createElement("div");

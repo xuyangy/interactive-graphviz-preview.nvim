@@ -4,7 +4,7 @@ baseline_commit: fa2873f046e139623a2c5ff713d61cdd505b3132
 
 # Story 4.1: User-facing hardening pass
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -109,6 +109,27 @@ so that the preview behaves predictably before interactivity (Epic 5) is layered
 - [Source: _bmad-output/implementation-artifacts/epic-3-retro-2026-06-05.md#Action Items (#2)]
 - Code: `lua/interactive-graphviz/commands.lua:34-46,79-99`, `server.lua:8-11,73,80-87,250-256`, `frontend/main.ts:15-27`, `server/server.ts:169-194,239-263`, `tests/integration/orphan_spec.lua`.
 
+## Senior Developer Review (AI)
+
+- **Date:** 2026-06-07 · **Outcome:** Approved after fixes · **Layers:** Blind Hunter, Edge Case Hunter, Acceptance Auditor (3 parallel adversarial reviewers).
+
+### Review Findings
+
+Patches (all applied this session):
+- [x] [Review][Patch] **Broadened idempotency guard stranded a dead server** — `commands.lua`. Convergent High (blind+edge+auditor). Dropping `and server.state.running` meant a lingering session record after a server crash (`_on_exit` never clears `session.active`) caused `:GraphvizPreview` to re-send into a dead server forever — no re-spawn, no browser. Fixed: guard is now `session.has(bufnr) and server.is_running()` — `is_running()` is true during the pre-`ready` startup window (keeps the N-tabs fix) but false after exit (restores the re-spawn path). Added a crash-recovery regression test.
+- [x] [Review][Patch] **Empty-notice and error overlay could coexist** — `frontend/render.ts`. Med (edge+auditor). They are now mutually exclusive: `showEmptyNotice` clears the error overlay and `showError` clears the empty notice.
+- [x] [Review][Patch] **Windows checksum verification could fail (no native hasher)** — `lua/interactive-graphviz/install.lua`. Med (edge). `digest_file` only tried `sha256sum`/`shasum`/`openssl`; a Windows host (and the new AC4 CI gate) may have none on PATH. Added a `certutil` fallback (tried last; POSIX never reaches it) + an `extract_sha256` parse test for certutil output.
+- [x] [Review][Patch] **PowerShell harness gave an opaque failure if nvim missing** — `tests/integration/run_orphan_check.ps1`. Low (edge). Added a `Get-Command nvim` guard that fails loudly (exit 2).
+
+Deferred (real, pre-existing, not caused by this change):
+- [x] [Review][Defer] **install/config/lifecycle/health specs are not in the CI busted line** — `.github/workflows/ci.yml:36`. The new `extract_sha256` certutil test (and the existing `install_spec.lua`) are not CI-gated; only scaffold/session/commands/render run under busted in CI. Pre-existing coverage gap; verified locally instead. Recorded in `deferred-work.md`.
+
+Dismissed (noise / false positive after analysis):
+- Empty-render v-monotonicity desync (edge/blind Med): WS over TCP delivers in order and `v` is monotonic at the source, so an empty(v=5) never arrives before a real(v=4); the v-guard governs completion ordering, not arrival. No real inversion.
+- Tokenizer silently tolerates an unterminated quote (edge Low): best-effort for trusted user config; documented behavior.
+- `showEmptyNotice` unguarded `document.body` (blind Low): identical assumption to the pre-existing error overlay; not introduced here.
+- Reaped-timing log off-by-one (blind Low): cosmetic Write-Host only.
+
 ## Dev Agent Record
 
 ### Agent Model Used
@@ -169,12 +190,17 @@ claude-opus-4-8 (via bmad-dev-story)
 - `frontend/render.ts` (modified — AC2 `showEmptyNotice`/`clearEmptyNotice` + seam)
 - `frontend/dot.ts` (new — AC2 `isBlankDot` helper)
 - `frontend/dot.test.ts` (new — AC2 unit tests)
-- `tests/commands_spec.lua` (modified — AC1 + AC3 tests)
+- `tests/commands_spec.lua` (modified — AC1 + AC3 tests; +crash-recovery regression test from review)
 - `tests/support/busted_compat.lua` (modified — `truthy`/`is_not_nil` asserts)
-- `tests/integration/run_orphan_check.ps1` (new — AC4 Windows harness)
+- `tests/integration/run_orphan_check.ps1` (new — AC4 Windows harness; +nvim guard from review)
 - `.github/workflows/ci.yml` (modified — frontend test step + `windows-no-orphan` job)
+- `lua/interactive-graphviz/install.lua` (modified — review: `certutil` digest fallback for Windows)
+- `tests/install_spec.lua` (modified — review: `extract_sha256` certutil-output test)
 
 ### Change Log
 
 - 2026-06-07: Implemented Story 4.1 (user-facing hardening pass) — AC1–AC3 complete and
   test-covered; AC4 Windows no-orphan harness + CI job delivered, verification runs on CI push.
+- 2026-06-07: Adversarial code review (3 layers) — 4 patches applied (dead-server guard
+  regression, empty-notice/error-overlay exclusivity, Windows certutil digest fallback, ps1 nvim
+  guard), 1 deferred (CI busted coverage gap), 4 dismissed. Status → done.

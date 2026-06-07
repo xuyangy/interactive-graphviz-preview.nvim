@@ -70,14 +70,16 @@ function M.preview()
     return
   end
 
-  -- Idempotency guard: if a session is already active for this buffer, just
-  -- re-send the current render — never re-open the browser or re-register the
-  -- live-reload watch. This fires whether the server is already `running` OR
-  -- still starting (pre-`ready`): a registered session means a browser-open is
-  -- already pending/done, so a rapid second `:GraphvizPreview` during startup
-  -- must NOT stack a second `server.on_ready(...)` callback (which would open a
-  -- second tab when `ready` arrives). server.send queues the render until ready.
-  if session.has(bufnr) then
+  -- Idempotency guard: if a session is already active for this buffer AND the
+  -- server is live, just re-send the current render — never re-open the browser
+  -- or re-register the live-reload watch. `server.is_running()` (handle present +
+  -- alive) is true both once `ready` has arrived AND while the server is still
+  -- starting (pre-`ready`), so a rapid second `:GraphvizPreview` during startup
+  -- does NOT stack a second `server.on_ready(...)` callback (which would open a
+  -- second tab when `ready` arrives); server.send queues the render until ready.
+  -- It is false once the server has exited, so a lingering session record after a
+  -- crash falls through to the re-spawn path below rather than silently no-op'ing.
+  if session.has(bufnr) and server.is_running() then
     local dot = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
     server.send({
       type = "render",
