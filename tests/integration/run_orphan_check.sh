@@ -25,6 +25,7 @@ done
 
 if [ -z "$SERVER_PID" ] || [ "$SERVER_PID" = "ERROR_NOT_READY" ]; then
   echo "FAIL: server never became ready (got '$SERVER_PID')"
+  [ -f "$PIDFILE.diag" ] && { echo "--- child diag ---"; cat "$PIDFILE.diag"; }
   cat /tmp/ig_orphan_child.log
   kill -9 "$CHILD" 2>/dev/null
   rm -f "$PIDFILE"

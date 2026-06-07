@@ -45,6 +45,7 @@ for ($i = 0; $i -lt 150; $i++) {
 
 if ($serverPid -eq "" -or $serverPid -eq "ERROR_NOT_READY") {
   Write-Host "FAIL: server never became ready (got '$serverPid')"
+  if (Test-Path "$pidFile.diag") { Write-Host "--- child diag ---"; Get-Content "$pidFile.diag" }
   if (Test-Path $childLog) { Get-Content $childLog }
   if (Test-Path "$childLog.err") { Get-Content "$childLog.err" }
   Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue
