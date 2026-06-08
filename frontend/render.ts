@@ -38,7 +38,6 @@ import {
   getSearchConfig,
   isSearchScope,
   searchResultToHighlightSet,
-  setSearchConfig,
   shouldCloseSearch,
   shouldOpenSearch,
   type SearchOpts,
@@ -442,15 +441,6 @@ function extractModelFromApp(): GraphModel {
   app.querySelectorAll("g.edge").forEach((g) => edgeTitles.push(groupTitle(g)));
   app.querySelectorAll("g.cluster").forEach((g) => clusterTitles.push(groupTitle(g)));
   return buildModelFromTitles({ nodeTitles, edgeTitles, clusterTitles });
-}
-
-/** Clear all highlight CSS classes from #app's node/edge groups (full opacity). */
-function clearHighlightClasses(): void {
-  const app = document.getElementById("app");
-  if (!app) return;
-  app.querySelectorAll("g.node, g.edge").forEach((g) => {
-    g.classList.remove("ig-selected", "ig-neighbor", "ig-dimmed");
-  });
 }
 
 /**
