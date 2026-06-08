@@ -1,5 +1,15 @@
 # Deferred Work
 
+> **Triage (correct-course 2026-06-07):** the user-facing items below are pulled into v2.
+> `→ Epic 4.1` = consolidated hardening story; `→ Story 5.1` = wired by the zoom/pan story.
+> Unmarked items remain documented debt (theoretical/style; revisit as needed).
+> See `../planning-artifacts/sprint-change-proposal-2026-06-07.md`.
+
+## Deferred from: code review of story 4-1-user-facing-hardening-pass (2026-06-07)
+
+- Windows `curl` download robustness for the ~110MB prebuilt: the in-Lua `download_to_tmp` (`curl -fL --retry 3`) stalled intermittently on the cold `windows-latest` runner (0 bytes transferred over the connection). The CI no-orphan gate works around it by pre-staging the binary via `gh release download`, but **real Windows users still hit the curl path on install**. Harden it (e.g. `--connect-timeout`, `--speed-limit/--speed-time` so a stall triggers `--retry`, more retries) or verify a 110MB transfer succeeds reliably on a real Windows host. [lua/interactive-graphviz/install.lua download_to_tmp]
+- `install_spec.lua`, `config_spec.lua`, `lifecycle_spec.lua`, and `health_spec.lua` are not in the CI busted line (`.github/workflows/ci.yml` runs only scaffold/session/commands/render specs + the orphan integration). New unit tests added to those files — e.g. the Story 4.1 `extract_sha256` certutil-output test — are therefore not CI-gated. Pre-existing coverage gap; wire these specs into CI (or add a `.busted` config that discovers all `tests/*_spec.lua`). [.github/workflows/ci.yml:36]
+
 ## Deferred from: code review of story 1-2-server-spawn-and-no-orphan-supervision (2026-06-03)
 
 - Unbounded `stdout_buf` (Lua) / `LineBuffer` (TS) growth on a newline-less huge line. Trusted local channel; add a max-line cap that drops + diagnoses an over-long unterminated buffer. [lua/interactive-graphviz/server.lua:206, server/stdio.ts]
@@ -11,12 +21,12 @@
 
 ## Deferred from: code review of story 1-4-open-preview-and-first-render (2026-06-04)
 
-- Empty DOT buffer sends a render envelope; frontend silently ignores it (`if (dot)` guard in `main.ts`). User gets a blank preview with no feedback. Story 1.6 error feedback will surface this. [frontend/main.ts, lua/interactive-graphviz/commands.lua]
-- Multiple rapid `:GraphvizPreview` calls before `ready` queue N browser-open callbacks — N browser tabs open. Story 1.7 idempotency guard will fix this. [lua/interactive-graphviz/server.lua]
+- Empty DOT buffer sends a render envelope; frontend silently ignores it (`if (dot)` guard in `main.ts`). User gets a blank preview with no feedback. Story 1.6 error feedback will surface this. [frontend/main.ts, lua/interactive-graphviz/commands.lua] **→ Epic 4.1**
+- Multiple rapid `:GraphvizPreview` calls before `ready` queue N browser-open callbacks — N browser tabs open. Story 1.7 idempotency guard will fix this. [lua/interactive-graphviz/server.lua] **→ Epic 4.1**
 - Concurrent `renderDot` calls race for `#app` — second call can interrupt or corrupt first d3-graphviz transition. Story 1.5 render-lock will address this. [frontend/render.ts]
 - `lastRender` replayed on reconnect may be invalid/errored DOT (no good/bad distinction). Story 1.6 introduces `lastGoodDot` to replace `lastRender`. [server/sessions.ts]
 - `lastRender` lost on server restart — browser reconnect gets blank preview. Known architectural limitation; no server-side persistence is in scope.
-- `open_cmd` with quoted arguments (e.g. `open -a "Google Chrome"`) is split naively by `vim.split("%s+")`, breaking multi-word commands. Configuration edge case; consider documenting or using `vim.fn.shellescape`. [lua/interactive-graphviz/commands.lua]
+- `open_cmd` with quoted arguments (e.g. `open -a "Google Chrome"`) is split naively by `vim.split("%s+")`, breaking multi-word commands. Configuration edge case; consider documenting or using `vim.fn.shellescape`. [lua/interactive-graphviz/commands.lua] **→ Epic 4.1**
 - No `nvim_buf_is_valid` guard in `is_dot_buffer` — theoretical error if called with invalid bufnr. Story 1.7 lifecycle cleanup will add buffer validity checks. [lua/interactive-graphviz/commands.lua]
 - `commands_spec.lua` never exercises the `on_ready` deferred-queue path (all stubs fire `fn()` immediately). Requires an integration test with a real Neovim + real server; deferred to Story 1.7 scope.
 - Very large DOT buffer: no size limit before `server.send`. `vim.json.encode` on a multi-MB buffer may be slow and exhaust the stdin pipe buffer. Pre-existing; relates to the unbounded `stdout_buf` deferred from Story 1.2 review. [lua/interactive-graphviz/commands.lua]
@@ -37,5 +47,5 @@
 
 - Unicode surrogate-pair split in `extractMessage` at the 200-char boundary — JavaScript `slice` operates on UTF-16 code units and can split emoji/CJK surrogate pairs. Low-probability cosmetic issue. [frontend/render.ts:56]
 - Server `lastGoodRender` stores every dispatched render envelope including broken-DOT ones; the "last good render" for reconnecting browsers is only truly filtered at the frontend's `lastGoodDot`. AC5 is partially addressed — the rename improves naming but cold-open replay can still serve broken DOT. True fix requires the server to track render success/failure, which is architecturally out of scope (WASM errors are browser-side). [server/sessions.ts, server/server.ts]
-- `config.get().preserve_view` not read at render time in `render.ts`; `captureViewState`/`restoreViewState` exported from `viewstate.ts` are not called from the render path. Zoom/pan preservation deferred by AC4 scope guard; wire these when a clean d3-graphviz integration path is available. [frontend/render.ts, frontend/viewstate.ts]
+- `config.get().preserve_view` not read at render time in `render.ts`; `captureViewState`/`restoreViewState` exported from `viewstate.ts` are not called from the render path. Zoom/pan preservation deferred by AC4 scope guard; wire these when a clean d3-graphviz integration path is available. [frontend/render.ts, frontend/viewstate.ts] **→ Story 5.1**
 

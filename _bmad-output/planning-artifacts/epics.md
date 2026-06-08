@@ -159,6 +159,23 @@ the binary Epic 1 ran from source. Touches `install.lua`, `release.yml`,
 **FRs covered:** FR-12, FR-13
 **NFRs exercised:** NFR-1, NFR-5, NFR-4 (integrity)
 
+### Epic 4: v1 Hardening (user-facing slice) — *v2, added 2026-06-07*
+A consolidated pass that closes the user-facing defects triaged from `deferred-work.md`
+plus the open Epic-3-retro verification item, de-risking before v2 adds interaction
+surface. Small and self-contained; no new product promise.
+**Deferred items consumed:** N-tabs idempotency, empty-DOT feedback, `open_cmd` quoting,
+Windows no-orphan verification (retro AI#2).
+
+### Epic 5: Interactivity Layer — *v2, added 2026-06-07*
+A user can interact with the rendered Graph the way the plugin's name promises — click a
+node to highlight its neighbors, search nodes/edges, and zoom/pan/reset — reaching parity
+with `vscode-interactive-graphviz`. Entirely **frontend-local**: operates on the already-
+rendered SVG client-side, adds **no new wire messages and no install prerequisites** (the
+browser→server return channel stays dormant, reserved for a future v3 bidirectional sync),
+so NFR-1 / SM-C1 are preserved.
+**FRs covered:** FR-15, FR-16, FR-17, FR-18
+**NFRs exercised:** NFR-7 (interaction responsiveness), NFR-1 / SM-C1 (no new prerequisites)
+
 ## Epic 1: Live Graphviz Preview
 
 A user runs `:GraphvizPreview` on a `.dot`/`.gv` buffer and watches their graph render
@@ -416,3 +433,110 @@ process group so no wrapper can orphan the real server (FR-13)
 **When** diagnostics run
 **Then** it verifies Neovim ≥ 0.10, binary presence + checksum match, Bun availability for
 fallback, and port-bind capability, reporting each result
+
+## Epic 4: v1 Hardening (user-facing slice)
+
+*Added by correct-course 2026-06-07. Closes the user-facing items triaged from
+`deferred-work.md` plus the open Epic-3-retro verification item. One consolidated story.*
+
+### Story 4.1: User-facing hardening pass
+
+As a Neovim user,
+I want the rough edges from v1 fixed,
+So that the preview behaves predictably before interactivity is layered on.
+
+**Acceptance Criteria:**
+
+**Given** a preview is being started
+**When** the user runs `:GraphvizPreview` several times in rapid succession before the
+server is `ready`
+**Then** exactly one browser tab opens — an idempotency guard coalesces the queued
+open-callbacks (no N-tabs) (FR-1; closes Story 1.4 / 1.7 deferral)
+[lua/interactive-graphviz/server.lua, commands.lua]
+
+**Given** a `.dot`/`.gv` buffer that is empty or whitespace-only
+**When** a render is dispatched
+**Then** the user gets a visible, informative message instead of a silent blank preview
+[frontend/main.ts, lua/interactive-graphviz/commands.lua]
+
+**Given** an `open_cmd` with quoted multi-word arguments (e.g. `open -a "Google Chrome"`)
+**When** the browser is opened
+**Then** the command is parsed/escaped correctly and launches as intended (no naive
+`%s+` split breakage) [lua/interactive-graphviz/commands.lua]
+
+**Given** the Windows x64 prebuilt server (shipped in v0.1.2)
+**When** Neovim exits abnormally and the stdin pipe closes (EOF)
+**Then** the server self-terminates with no orphaned process — **verified end-to-end on
+Windows**, closing Epic-3-retro Action Item #2 and the project-memory "Windows no-orphan
+unverified" note [server/, tests/integration]
+
+## Epic 5: Interactivity Layer
+
+*Added by correct-course 2026-06-07. The PRD §6.2 parity target. Frontend-local — no new
+wire messages, no Lua changes, return channel stays dormant. UX affordances specified in
+`ux-interactivity-v2.md`. Stories sequenced so 5.1 establishes the view-state foundation.*
+
+### Story 5.1: Zoom/pan and reset view
+
+As a user reading a Graph,
+I want to zoom, pan, and reset-to-fit, with my view kept across live-reload,
+So that I can navigate a large Graph without losing my place when it re-renders.
+
+**Acceptance Criteria:**
+
+**Given** a rendered Graph
+**When** the user zooms/pans (and presses the reset affordance, `0`/`r`)
+**Then** the SVG zooms/pans smoothly and reset returns to fit-to-viewport (FR-15)
+
+**Given** `preserve_view = true` and a live-reload re-render
+**When** the new Graph is applied
+**Then** the prior zoom/pan transform is reapplied — `captureViewState`/`restoreViewState`
+in `viewstate.ts` are wired into the render path, **closing the deferred `preserve_view`
+item**; with `preserve_view = false` the view resets on reload
+[frontend/render.ts, frontend/viewstate.ts]
+
+### Story 5.2: Click-to-highlight neighbors
+
+As a user inspecting a Graph,
+I want to click a node and see its neighbors highlighted,
+So that I can trace relationships in a dense Graph.
+
+**Acceptance Criteria:**
+
+**Given** a rendered Graph
+**When** the user clicks a node
+**Then** the node and its neighbors are highlighted and non-matching elements are dimmed,
+per the configured `highlight_mode` (single / upstream / downstream / bidirectional) (FR-16)
+
+**Given** highlighted state
+**When** the user Shift+clicks additional nodes (multi-select) or presses `Esc`
+**Then** multi-select accumulates the highlight set and `Esc` clears all highlighting;
+clicking a node within a cluster offers cluster highlight
+[frontend/interact.ts]
+
+### Story 5.3: Live search
+
+As a user looking for something in a Graph,
+I want to search nodes/edges by label,
+So that I can find and focus elements without scanning visually.
+
+**Acceptance Criteria:**
+
+**Given** a rendered Graph
+**When** the user opens search (`/`) and types a query
+**Then** matching nodes/edges are highlighted, non-matches dimmed, and a result counter
+shows match count; case-sensitive and regex toggles work; search scope is respected (FR-17)
+[frontend/search.ts]
+
+### Story 5.4: Animated transitions and polish
+
+As a user,
+I want highlight and re-render changes to animate,
+So that the Graph is pleasant and legible to interact with.
+
+**Acceptance Criteria:**
+
+**Given** `interactive` features are enabled
+**When** highlights change or the Graph re-renders
+**Then** transitions animate via d3-graphviz, config-gated, with a non-animated fallback;
+interactions stay responsive without perceptible lag (FR-18, NFR-7)

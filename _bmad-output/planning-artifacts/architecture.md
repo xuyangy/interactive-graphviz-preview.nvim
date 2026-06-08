@@ -321,6 +321,25 @@ Message set (v1):
   after re-render); best-effort, config-gated (`preserve_view`).
 - Renderer: `d3-graphviz` 5.6.0 + `@hpcc-js/wasm-graphviz` 1.21.2, bundled static.
 
+### Interaction Layer (v2 — frontend-local) *(added 2026-06-07)*
+
+The v2 interactivity layer (Epic 5; FR-15–FR-18) is **entirely Tier-3 / browser-side**. It operates
+on the already-rendered SVG client-side, so it requires **no new wire messages and no Lua changes**.
+
+- **Return channel stays dormant.** The browser→server WS return channel remains "warm but dormant"
+  (see *Transport & Message Protocol*); interactivity does **not** activate it. It is still reserved
+  for a future **v3 bidirectional graph↔buffer sync**, which *is* the change that lights it up.
+- **New frontend modules:** `frontend/interact.ts` (click-to-highlight + selection state machine:
+  single/upstream/downstream/bidirectional, cluster, multi-select, ESC-clear) and
+  `frontend/search.ts` (label search, case-sensitive/regex toggles, result counter, dim non-matches).
+- **`viewstate.ts` wired into the render path.** Zoom/pan + reset and the existing `preserve_view`
+  config are connected at render time (`captureViewState`/`restoreViewState`) — this **closes the
+  deferred-work item** where `preserve_view` was configured but never read at render time.
+- **Config additions (FR-14 seam):** `interactive=true`, `highlight_mode="bidirectional"`,
+  `search={…}`. Zero-config keeps interactivity on by default; nothing changes for non-interactive use.
+- **Invariant preserved:** no new install prerequisites (NFR-1 / SM-C1) — all of the above ships in
+  the already-bundled, already-embedded frontend.
+
 ### Security
 
 - Bind the literal `127.0.0.1` by default (not `0.0.0.0`, not `localhost`/`::1`).

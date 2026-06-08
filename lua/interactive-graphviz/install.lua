@@ -182,7 +182,9 @@ local function plugin_root()
   if not manifest_path then
     fail("could not locate committed checksums.txt on runtimepath")
   end
-  local root = manifest_path:gsub("/checksums%.txt$", "")
+  -- Strip the trailing separator + filename. Match BOTH `/` and `\` so this works
+  -- on Windows, where nvim_get_runtime_file returns a backslash path.
+  local root = manifest_path:gsub("[/\\]checksums%.txt$", "")
   if root == manifest_path then
     fail("could not derive plugin root from checksums.txt path")
   end
@@ -212,6 +214,9 @@ local function parse_manifest(manifest_path)
   while pos <= #content do
     local newline = content:find("\n", pos, true)
     local line = newline and content:sub(pos, newline - 1) or content:sub(pos)
+    -- Tolerate CRLF: a Windows checkout (core.autocrlf) leaves a trailing \r that
+    -- would otherwise break the anchored line match below.
+    line = (line:gsub("\r$", ""))
     line_no = line_no + 1
     if line == "" then
       fail("malformed checksum line " .. line_no .. " in checksums.txt")
@@ -271,6 +276,12 @@ local function digest_file(path)
     { "sha256sum", path },
     { "shasum", "-a", "256", path },
     { "openssl", "dgst", "-sha256", path },
+    -- Native Windows fallback: GitHub windows runners and end-user Windows hosts
+    -- may ship none of the above on PATH, but certutil is always present. Tried
+    -- last so POSIX hosts never reach it (and an NSS `certutil` on Linux, which
+    -- lacks `-hashfile`, just fails its run and falls through). Modern certutil
+    -- prints a continuous 64-hex digest that extract_sha256 picks up.
+    { "certutil", "-hashfile", path, "SHA256" },
   }
 
   local tried = false
@@ -290,7 +301,7 @@ local function digest_file(path)
   if tried then
     return nil, "SHA-256 tool failed to produce a digest for " .. tostring(path)
   end
-  return nil, "no SHA-256 tool found on PATH (need sha256sum, shasum, or openssl)"
+  return nil, "no SHA-256 tool found on PATH (need sha256sum, shasum, openssl, or certutil)"
 end
 
 local function verify_file(path, expected, artifact)

@@ -18,13 +18,16 @@ nvim --headless -u tests/minimal_init.lua -l tests/integration/orphan_child.lua 
 CHILD=$!
 
 SERVER_PID=""
-for _ in $(seq 1 150); do
+# Generous wait: the first run downloads the prebuilt before the child announces
+# its PID, which can exceed a short window on a cold runner.
+for _ in $(seq 1 600); do
   if [ -s "$PIDFILE" ]; then SERVER_PID="$(cat "$PIDFILE")"; break; fi
   sleep 0.1
 done
 
 if [ -z "$SERVER_PID" ] || [ "$SERVER_PID" = "ERROR_NOT_READY" ]; then
   echo "FAIL: server never became ready (got '$SERVER_PID')"
+  [ -f "$PIDFILE.diag" ] && { echo "--- child diag ---"; cat "$PIDFILE.diag"; }
   cat /tmp/ig_orphan_child.log
   kill -9 "$CHILD" 2>/dev/null
   rm -f "$PIDFILE"

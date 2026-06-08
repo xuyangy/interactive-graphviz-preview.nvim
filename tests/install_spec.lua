@@ -534,3 +534,24 @@ describe("digest_file hashes real binary bytes", function()
     assert.are.equal(expected:lower(), install._test.digest_file(path))
   end)
 end)
+
+describe("extract_sha256 parses hasher output", function()
+  after_each(function()
+    package.loaded["interactive-graphviz.install"] = nil
+    _G.vim = nil
+  end)
+
+  it("extracts the digest from Windows certutil -hashfile output", function()
+    _G.vim = { fn = {}, env = {} }
+    local install = require("interactive-graphviz.install")
+    -- certutil prints a header line, the continuous 64-hex digest, then a status
+    -- line; extract_sha256 must pick out the digest and lowercase it.
+    local out = "SHA256 hash of server-windows-x64.exe:\n"
+      .. "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855\n"
+      .. "CertUtil: -hashfile command completed successfully.\n"
+    assert.are.equal(
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      install._test.extract_sha256(out)
+    )
+  end)
+end)
