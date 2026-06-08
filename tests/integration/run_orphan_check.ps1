@@ -35,7 +35,9 @@ $child = Start-Process -FilePath "nvim" `
   -PassThru -NoNewWindow -RedirectStandardOutput $childLog -RedirectStandardError "$childLog.err"
 
 $serverPid = ""
-for ($i = 0; $i -lt 150; $i++) {
+# Generous wait: the first run downloads the prebuilt on a cold runner before the
+# child can announce its PID, which can take well over the POSIX 15s window.
+for ($i = 0; $i -lt 600; $i++) {
   if ((Test-Path $pidFile) -and ((Get-Item $pidFile).Length -gt 0)) {
     $serverPid = (Get-Content $pidFile -Raw).Trim()
     if ($serverPid -ne "") { break }

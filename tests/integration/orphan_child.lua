@@ -24,7 +24,10 @@ local server = require("interactive-graphviz.server")
 
 -- Resolve the server command explicitly first so install/download/checksum
 -- failures surface in the diag trace (open_session routes them through
--- log.error, which log_level="off" suppresses).
+-- log.error, which log_level="off" suppresses). The first resolve downloads the
+-- prebuilt and can block for a while on a cold runner — leave an early breadcrumb
+-- so the harness sees the child started even if it is still downloading.
+diag("start: resolving server cmd (first run downloads the prebuilt)")
 local install = require("interactive-graphviz.install")
 local rok, rcmd = pcall(install.resolve_server_cmd)
 if rok then
