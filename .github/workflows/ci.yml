@@ -46,8 +46,8 @@ jobs:
         run: bun run scripts/release.ts validate-targets
       - name: Frontend bundle smoke
         run: bun build frontend/index.html --outdir dist/frontend
-      - name: Frontend unit tests (DOT helpers)
-        run: bun test frontend/dot.test.ts
+      - name: Frontend unit tests (DOT helpers, view-state, reset keybinding)
+        run: bun test frontend
 
   # Windows no-orphan verification (Story 4.1 AC4 / Epic-3 retro AI#2). Closes the
   # "Windows no-orphan unverified" gap: the shipped server-windows-x64.exe prebuilt

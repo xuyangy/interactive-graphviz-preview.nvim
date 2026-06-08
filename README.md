@@ -73,6 +73,20 @@ Edits to the buffer re-render automatically (debounced, latest-wins). On a bad
 graph the last good render is kept and an error is shown rather than blanking
 the preview.
 
+### Navigating the graph (in the browser)
+
+The preview is interactive — navigate large graphs without leaving Neovim:
+
+| Gesture | Action |
+| --- | --- |
+| Scroll wheel | Zoom in / out |
+| Click + drag | Pan |
+| `0` or `r` | Reset the view to fit the viewport |
+
+When `preserve_view = true` (the default), your current zoom/pan is kept across
+live-reload re-renders, so editing the buffer no longer snaps you back to the
+top of the graph. Set `preserve_view = false` to reset to fit on every reload.
+
 ## Configuration
 
 Defaults shown; pass any subset to `setup{}`:
@@ -85,7 +99,7 @@ require("interactive-graphviz").setup({
   port = 0,                  -- listen port; 0 = ephemeral (OS-assigned)
   expose_to_lan = false,     -- false = bind 127.0.0.1; true = bind 0.0.0.0 (see Security)
   open_cmd = nil,            -- nil = vim.ui.open; or a command string, e.g. "firefox"
-  preserve_view = true,      -- reserved: zoom/pan preservation across reloads is not yet wired
+  preserve_view = true,      -- keep zoom/pan across live-reload re-renders (false = reset to fit)
   heartbeat_ms = 2000,       -- supervision heartbeat interval (ms), > 0
   log_level = "warn",        -- off | error | warn | info | debug
 })

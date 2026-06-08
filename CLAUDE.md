@@ -1,0 +1,3 @@
+- NEVER use cd commands to change directories during interactions. This is a STRICT rule.
+- Use absolute or relative paths directly in your commands instead of changing directories (e.g., use `git -C <path> <command>` instead of `cd <path> && git <command>`).
+- NEVER combine `cd` with command execution using `&&`.

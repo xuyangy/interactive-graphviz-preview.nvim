@@ -1,7 +1,19 @@
 import type { ProtocolMessage } from "./protocol";
 import { createWebSocketClient } from "./ws";
-import { queueRender, showError, showEmptyNotice, clearEmptyNotice } from "./render";
+import {
+  queueRender,
+  showError,
+  showEmptyNotice,
+  clearEmptyNotice,
+  installResetKeybinding,
+} from "./render";
 import { isBlankDot } from "./dot";
+
+// Story 5.1 — install the document-level reset-to-fit keybinding (`0` / `r`)
+// once at startup. Scroll=zoom and drag=pan are provided by d3-graphviz's
+// built-in d3-zoom (enabled by default); we only add the reset affordance.
+// The keydown handler is exported from render.ts so the d3 import stays there.
+installResetKeybinding();
 
 // Debug stash: all inbound envelopes are kept here for inspection.
 // Intentional — reviewed and dismissed in Story 1.3 code review.

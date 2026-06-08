@@ -7,6 +7,12 @@
 // eslint-disable-next-line import/no-unresolved
 import { graphviz } from "d3-graphviz";
 import { createRenderQueue } from "./render-queue";
+import {
+  captureViewState,
+  restoreViewState,
+  type ViewState,
+  type ZoomAccessor,
+} from "./viewstate";
 
 /**
  * Render a DOT string into #app using the bundled WASM renderer.
@@ -38,6 +44,47 @@ export function renderDot(dot: string, engine: string): Promise<void> {
   });
 }
 
+// ── Zoom / view-state plumbing (Story 5.1) ───────────────────────────────────
+// render.ts is the single home of the d3-graphviz import, so it also owns the
+// bridge to viewstate.ts. The cached graphviz instance lives on the #app node
+// (d3-graphviz stores it at node.__graphviz__ and reuses it on every
+// graphviz("#app") call), so zoomSelection()/zoomBehavior() reflect the LIVE
+// zoom state across renders.
+
+/** Build a viewstate ZoomAccessor backed by the live d3-graphviz instance. */
+function zoomAccessor(): ZoomAccessor {
+  // d3-graphviz ships no types — gv is `any`. Its public zoom accessors are
+  // zoomSelection() and zoomBehavior() (d3-graphviz/src/zoom.js).
+  const gv = graphviz("#app");
+  return {
+    zoomSelection() {
+      const sel = gv.zoomSelection();
+      return sel ?? null;
+    },
+    zoomBehavior() {
+      const b = gv.zoomBehavior();
+      return b ?? null;
+    },
+  };
+}
+
+/**
+ * Reset the view to fit-to-viewport (Story 5.1 AC1, the `0`/`r` affordance).
+ * Uses the d3-graphviz public resetZoom() (resets to the original transform set
+ * at layout time) rather than hand-rolling a transform. No-op before the first
+ * render (no zoom behavior yet). Guarded against d3 throwing.
+ */
+export function resetZoomToFit(): void {
+  try {
+    const gv = graphviz("#app");
+    if (gv.zoomBehavior() && gv.zoomSelection()) {
+      gv.resetZoom();
+    }
+  } catch (err) {
+    console.warn("interactive-graphviz: resetZoom failed", err);
+  }
+}
+
 // ── Last-good-render state ──────────────────────────────────────────────────
 let lastGoodDot: string | null = null;
 let lastGoodEngine: string = "dot";
@@ -46,12 +93,25 @@ let lastGoodEngine: string = "dot";
  * Wraps renderDot: on success, updates lastGoodDot/lastGoodEngine.
  * Does NOT render the fallback itself — fallback is triggered by onError in
  * the queue opts (render.ts caller responsibility).
+ *
+ * Story 5.1 — preserve_view: capture the live zoom transform BEFORE the render
+ * re-runs the graph transition, and reapply it AFTER renderDot's "end" event
+ * resolves (the zoom behavior is in place by then). The reapply is defensive and
+ * idempotent — it restores the prior view whether or not d3-graphviz happened to
+ * preserve the transform on this particular render. captureViewState/restoreViewState
+ * are no-ops when preserve_view is false or on a fresh canvas, so the default
+ * fit-to-viewport behavior is preserved. This is the per-render success
+ * boundary, so it runs for every applied render (not just the first).
  */
 async function renderDotWithFallback(dot: string, engine: string): Promise<void> {
+  const captured: ViewState | null = captureViewState(zoomAccessor());
   await renderDot(dot, engine);
   // Only reached on success — update last-good state.
   lastGoodDot = dot;
   lastGoodEngine = engine;
+  // Reapply the prior zoom/pan now that the new zoom behavior exists (AC2).
+  // No-op when preserve_view=false (AC3) or when nothing was captured.
+  restoreViewState(zoomAccessor(), captured);
 }
 
 // ── Error overlay ───────────────────────────────────────────────────────────
@@ -145,6 +205,52 @@ export function _emptyNoticeElement(): HTMLElement | null {
   return document.getElementById("ig-empty-notice");
 }
 
+// ── Reset keybinding (Story 5.1 AC1) ──────────────────────────────────────────
+
+/** The shape of a keydown event we care about — keeps the predicate DOM-free. */
+export interface ResetKeyEvent {
+  key: string;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  altKey?: boolean;
+}
+
+/**
+ * Pure predicate: should this keydown trigger a reset-to-fit?
+ *
+ * True only for an un-modified `0` or `r` when NOT typing in a text field.
+ * `activeTag` is the focused element's tagName (e.g. document.activeElement?.tagName);
+ * search (Story 5.3) will own typing, so we leave that seam clean by skipping
+ * INPUT/TEXTAREA. Pure + injectable so it is unit-testable without a real DOM.
+ */
+export function shouldReset(e: ResetKeyEvent, activeTag: string | undefined): boolean {
+  if (e.key !== "0" && e.key !== "r") return false;
+  if (activeTag === "INPUT" || activeTag === "TEXTAREA") return false;
+  if (e.ctrlKey || e.metaKey || e.altKey) return false;
+  return true;
+}
+
+/**
+ * Handle a real keydown for the reset-to-fit affordance (`0` or `r`).
+ * Returns true when the key was handled (for tests / callers).
+ */
+export function handleResetKeydown(e: KeyboardEvent): boolean {
+  if (!shouldReset(e, document.activeElement?.tagName)) return false;
+  resetZoomToFit();
+  return true;
+}
+
+/**
+ * Install the document-level reset keybinding once. Idempotent: a second call
+ * is a no-op (guarded by a flag) so re-imports / HMR don't stack listeners.
+ */
+let _resetKeyInstalled = false;
+export function installResetKeybinding(): void {
+  if (_resetKeyInstalled) return;
+  _resetKeyInstalled = true;
+  document.addEventListener("keydown", handleResetKeydown);
+}
+
 // ── Render queue wired to real WASM renderer + error overlay ─────────────────
 const _queue = createRenderQueue(renderDotWithFallback, {
   onError(err: unknown, v: number) {
@@ -174,3 +280,8 @@ const _queue = createRenderQueue(renderDotWithFallback, {
  * Use this instead of renderDot directly from main.ts.
  */
 export const queueRender = _queue.queueRender.bind(_queue);
+
+// Re-export the preserve_view setter so main.ts configures view preservation
+// without importing viewstate.ts directly (keeps the render/view concern
+// single-sourced behind render.ts). Decision D1 Option 1: frontend-default-on.
+export { setPreserveView } from "./viewstate";
