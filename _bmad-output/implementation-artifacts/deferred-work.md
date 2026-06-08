@@ -7,6 +7,7 @@
 
 ## Deferred from: code review of story 4-1-user-facing-hardening-pass (2026-06-07)
 
+- Windows `curl` download robustness for the ~110MB prebuilt: the in-Lua `download_to_tmp` (`curl -fL --retry 3`) stalled intermittently on the cold `windows-latest` runner (0 bytes transferred over the connection). The CI no-orphan gate works around it by pre-staging the binary via `gh release download`, but **real Windows users still hit the curl path on install**. Harden it (e.g. `--connect-timeout`, `--speed-limit/--speed-time` so a stall triggers `--retry`, more retries) or verify a 110MB transfer succeeds reliably on a real Windows host. [lua/interactive-graphviz/install.lua download_to_tmp]
 - `install_spec.lua`, `config_spec.lua`, `lifecycle_spec.lua`, and `health_spec.lua` are not in the CI busted line (`.github/workflows/ci.yml` runs only scaffold/session/commands/render specs + the orphan integration). New unit tests added to those files — e.g. the Story 4.1 `extract_sha256` certutil-output test — are therefore not CI-gated. Pre-existing coverage gap; wire these specs into CI (or add a `.busted` config that discovers all `tests/*_spec.lua`). [.github/workflows/ci.yml:36]
 
 ## Deferred from: code review of story 1-2-server-spawn-and-no-orphan-supervision (2026-06-03)

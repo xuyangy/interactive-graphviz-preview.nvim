@@ -204,3 +204,10 @@ claude-opus-4-8 (via bmad-dev-story)
 - 2026-06-07: Adversarial code review (3 layers) — 4 patches applied (dead-server guard
   regression, empty-notice/error-overlay exclusivity, Windows certutil digest fallback, ps1 nvim
   guard), 1 deferred (CI busted coverage gap), 4 dismissed. Status → done.
+- 2026-06-08: AC4 **verified green in CI** (PR #1, run 27122517249): the `windows-no-orphan`
+  job reaped the released `server-windows-x64.exe` on a real Windows runner after a parent
+  force-kill. Getting there exposed and fixed **two real Windows-install bugs** that made the
+  v0.1.2 prebuilt non-functional end-to-end: `plugin_root()` only stripped a forward-slash
+  separator (backslash on Windows) and the `checksums.txt` parser choked on CRLF. The gate
+  pre-stages the prebuilt via `gh release download` because the in-Lua curl download of the
+  ~110MB binary stalled on cold runners (user-facing curl robustness deferred — see deferred-work).
