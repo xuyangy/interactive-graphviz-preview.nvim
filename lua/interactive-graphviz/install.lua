@@ -334,9 +334,29 @@ end
 local function download_to_tmp(url, tmp_path)
   local cmd
   if executable("curl") then
-    cmd = { "curl", "-fL", "--retry", "3", "--output", tmp_path, url }
+    -- A stalled-but-open connection (observed on cold Windows hosts: 0 bytes
+    -- transferred, never times out) is not a transient error to curl, so bare
+    -- --retry never fires. --speed-limit/--speed-time abort the transfer when it
+    -- drops below 1 KB/s for 30s; that abort is a timeout, which --retry retries.
+    cmd = {
+      "curl",
+      "-fL",
+      "--connect-timeout",
+      "30",
+      "--speed-limit",
+      "1024",
+      "--speed-time",
+      "30",
+      "--retry",
+      "5",
+      "--output",
+      tmp_path,
+      url,
+    }
   elseif executable("wget") then
-    cmd = { "wget", "-O", tmp_path, url }
+    -- --timeout covers dns/connect/read; a read timeout aborts a stalled
+    -- transfer and --tries re-attempts it.
+    cmd = { "wget", "--timeout=30", "--tries=5", "-O", tmp_path, url }
   else
     fail("no supported download tool found; install curl or wget")
   end

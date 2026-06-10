@@ -113,7 +113,13 @@ local function load_install(opts)
         stderr = opts.ldd_stderr or ""
         code = opts.ldd_code or 0
       elseif name == "curl" or name == "wget" then
-        local output = name == "curl" and cmd[6] or cmd[3]
+        local out_flag = name == "curl" and "--output" or "-O"
+        local output
+        for i, arg in ipairs(cmd) do
+          if arg == out_flag then
+            output = cmd[i + 1]
+          end
+        end
         write_file(output, downloads[cmd[#cmd]] or opts.download_data or "")
       elseif name == "xattr" then
         code = opts.xattr_code or 0
@@ -354,6 +360,68 @@ describe("install manifest and verification", function()
       end
     end
     assert.is_true(saw_xattr)
+  end)
+
+  -- Regression for the cold-Windows stall: a connection that opens but transfers
+  -- 0 bytes is not a transient error to curl, so --retry alone never fires.
+  -- --speed-limit/--speed-time turn the stall into a retryable timeout.
+  it("hardens the curl download against stalled connections", function()
+    local root = make_root()
+    local data = "release-binary"
+    write_file(root .. "/checksums.txt", sha256(data) .. "  server-darwin-arm64\n")
+
+    local install, calls = load_install({
+      root = root,
+      manifest_path = root .. "/checksums.txt",
+      download_data = data,
+    })
+    install.resolve_server_cmd()
+
+    local curl_call
+    for _, call in ipairs(calls) do
+      if call[1] == "curl" then
+        curl_call = call
+      end
+    end
+    assert.is_truthy(curl_call)
+
+    local args = {}
+    for i, arg in ipairs(curl_call) do
+      args[arg] = i
+    end
+    assert.is_truthy(args["--connect-timeout"])
+    assert.is_truthy(args["--speed-limit"])
+    assert.is_truthy(args["--speed-time"])
+    assert.is_truthy(args["--retry"])
+  end)
+
+  it("hardens the wget fallback with timeout and retries", function()
+    local root = make_root()
+    local data = "release-binary"
+    write_file(root .. "/checksums.txt", sha256(data) .. "  server-darwin-arm64\n")
+
+    local install, calls = load_install({
+      root = root,
+      manifest_path = root .. "/checksums.txt",
+      download_data = data,
+      executable = { curl = 0, wget = 1, xattr = 0 },
+    })
+    install.resolve_server_cmd()
+
+    local wget_call
+    for _, call in ipairs(calls) do
+      if call[1] == "wget" then
+        wget_call = call
+      end
+    end
+    assert.is_truthy(wget_call)
+
+    local args = {}
+    for _, arg in ipairs(wget_call) do
+      args[arg] = true
+    end
+    assert.is_truthy(args["--timeout=30"])
+    assert.is_truthy(args["--tries=5"])
   end)
 end)
 
