@@ -605,6 +605,19 @@ export function _resetHighlightState(): void {
   _clusterModel = null;
 }
 
+/** Set lastGoodDot directly. Tests only — production sets it in renderDotWithFallback. */
+export function _setLastGoodDot(dot: string | null): void {
+  lastGoodDot = dot;
+}
+
+/**
+ * Run the post-render highlight re-derivation. Tests only — the production
+ * caller is renderDotWithFallback on the per-render success boundary.
+ */
+export function _reapplyHighlightAfterRender(): void {
+  reapplyHighlightAfterRender();
+}
+
 // ── Live search (Story 5.3) ───────────────────────────────────────────────────
 // render.ts owns the DOM bridge for the pure search model in search.ts (mirroring
 // the interact.ts / viewstate.ts bridges). The match MATH + scope/toggle logic +
