@@ -13,7 +13,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
@@ -45,7 +45,7 @@ jobs:
         run: bun run scripts/release.ts build --out-dir dist/release --write-checksums checksums.txt
       - name: Upload prepared checksum manifest
         if: steps.context.outputs.publish != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: prepared-checksums
           path: checksums.txt

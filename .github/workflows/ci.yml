@@ -8,7 +8,7 @@ jobs:
   scaffold:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
       - name: Install Bun dependencies
         run: |
@@ -25,7 +25,7 @@ jobs:
           sudo apt-get install -y lua5.1 luarocks
           sudo luarocks install busted
       - name: Install Stylua
-        uses: JohnnyMorganz/stylua-action@v4
+        uses: JohnnyMorganz/stylua-action@v5
         with:
           token: ${{ github.token }}
           version: latest
@@ -57,7 +57,7 @@ jobs:
   windows-no-orphan:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
       - name: Install Bun dependencies
         run: |
