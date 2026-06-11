@@ -97,7 +97,7 @@ top of the graph. Set `preserve_view = false` to reset to fit on every reload.
 
 Click any node to trace its relationships: the clicked node and its neighbors
 are emphasized while everything else dims. Which neighbors light up follows the
-`highlight_mode`:
+`highlight_mode` config key (`setup{ highlight_mode = "..." }`):
 
 | `highlight_mode` | Highlights |
 | --- | --- |
@@ -127,6 +127,10 @@ Toggles in the search box refine matching:
 | `.*` (regex) | Treat the query as a regular expression (an invalid pattern reads `invalid regex` and matches nothing instead of crashing) |
 | Scope (`both` / `nodes` / `edges`) | Restrict matching to nodes only, edges only, or both (default) |
 
+The toggles' initial state comes from the `search` config key
+(`setup{ search = { scope = ..., case_sensitive = ..., regex = ... } }`); you
+can still flip them per-session in the box.
+
 Press `Esc` to close the search box and clear its highlight, returning every
 element to full opacity. Search highlighting survives live-reload: while the box
 is open, the query is re-applied against each new render.
@@ -139,11 +143,11 @@ and when the highlight set changes (click, search, clear) the emphasis fades in
 and out. Animation never blocks interaction — the latest render always wins and
 transitions stay short and interruptible.
 
-Animation honors your system's reduced-motion preference: if your OS requests
+Animation can be turned off with `setup{ animate = false }`, and it always
+honors your system's reduced-motion preference: if your OS requests
 `prefers-reduced-motion: reduce`, transitions are skipped and changes apply
-instantly. The behavior is resolved in the browser preview itself (no Neovim
-config key, no extra install prerequisites); the non-animated instant path is the
-exact same end result, just without the tween.
+instantly regardless of the config. The non-animated instant path is the exact
+same end result, just without the tween.
 
 ## Configuration
 
@@ -158,6 +162,13 @@ require("interactive-graphviz").setup({
   expose_to_lan = false,     -- false = bind 127.0.0.1; true = bind 0.0.0.0 (see Security)
   open_cmd = nil,            -- nil = vim.ui.open; or a command string, e.g. "firefox"
   preserve_view = true,      -- keep zoom/pan across live-reload re-renders (false = reset to fit)
+  highlight_mode = "bidirectional", -- click-highlight direction: single | upstream | downstream | bidirectional
+  animate = true,            -- animate re-renders + highlight changes (false = always instant)
+  search = {                 -- initial state of the live-search (`/`) box
+    scope = "both",          -- both | nodes | edges
+    case_sensitive = false,  -- start with the Aa toggle on
+    regex = false,           -- start with the .* toggle on
+  },
   heartbeat_ms = 2000,       -- supervision heartbeat interval (ms), > 0
   log_level = "warn",        -- off | error | warn | info | debug
 })
@@ -166,6 +177,13 @@ require("interactive-graphviz").setup({
 Invalid values are rejected with a warning and fall back to the default rather
 than failing setup. Note that `bind` is **not** a user-settable key — the bind
 address is controlled exclusively by `expose_to_lan` (see Security).
+
+The interactivity keys (`preserve_view`, `highlight_mode`, `animate`, `search`)
+are carried to the browser in the preview URL, so they **apply when a preview
+opens**. An already-open preview does not pick up a changed value live — and
+reloading the tab re-applies the *old* config baked into that tab's URL, not
+your latest `setup()`. To pick up a change, re-open the preview
+(`:GraphvizPreviewStop`, then `:GraphvizPreview`).
 
 ## How install works
 

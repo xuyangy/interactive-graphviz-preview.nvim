@@ -9,6 +9,13 @@ M.defaults = {
   expose_to_lan = false,
   open_cmd = nil,
   preserve_view = true,
+  highlight_mode = "bidirectional",
+  animate = true,
+  search = {
+    scope = "both",
+    case_sensitive = false,
+    regex = false,
+  },
   heartbeat_ms = 2000,
   log_level = "warn",
 }
@@ -16,6 +23,11 @@ M.defaults = {
 M.options = vim.deepcopy(M.defaults)
 
 local VALID_LOG_LEVELS = { off = true, error = true, warn = true, info = true, debug = true }
+
+local VALID_HIGHLIGHT_MODES =
+  { single = true, upstream = true, downstream = true, bidirectional = true }
+
+local VALID_SEARCH_SCOPES = { both = true, nodes = true, edges = true }
 
 local function engine_list()
   return table.concat(M.options.engines or {}, ", ")
@@ -146,6 +158,73 @@ local function validate(opts)
       "interactive-graphviz setup: preserve_view must be a boolean; using default true"
     )
     opts.preserve_view = M.defaults.preserve_view
+  end
+
+  -- validate highlight_mode is one of the four click-highlight directions
+  if type(opts.highlight_mode) ~= "string" or not VALID_HIGHLIGHT_MODES[opts.highlight_mode] then
+    table.insert(
+      warnings,
+      "interactive-graphviz setup: highlight_mode '"
+        .. tostring(opts.highlight_mode)
+        .. "' is invalid; expected one of: single, upstream, downstream, bidirectional;"
+        .. " using default 'bidirectional'"
+    )
+    opts.highlight_mode = M.defaults.highlight_mode
+  end
+
+  -- validate animate is a boolean
+  if type(opts.animate) ~= "boolean" then
+    table.insert(
+      warnings,
+      "interactive-graphviz setup: animate must be a boolean; using default true"
+    )
+    opts.animate = M.defaults.animate
+  end
+
+  -- validate search is a table; each subfield is validated independently so a
+  -- partial table (e.g. { scope = "nodes" }) keeps the defaults for unset fields.
+  if type(opts.search) ~= "table" then
+    table.insert(warnings, "interactive-graphviz setup: search must be a table; using defaults")
+    opts.search = vim.deepcopy(M.defaults.search)
+  else
+    -- Validate into a FRESH table: the merged opts.search can alias the very
+    -- table the user passed to setup() (deep-extend assigns list-shaped tables
+    -- by reference), and validation must never mutate caller-owned data.
+    local user = opts.search
+    local validated = vim.deepcopy(M.defaults.search)
+    if user.scope ~= nil then
+      if type(user.scope) == "string" and VALID_SEARCH_SCOPES[user.scope] then
+        validated.scope = user.scope
+      else
+        table.insert(
+          warnings,
+          "interactive-graphviz setup: search.scope '"
+            .. tostring(user.scope)
+            .. "' is invalid; expected one of: both, nodes, edges; using default 'both'"
+        )
+      end
+    end
+    if user.case_sensitive ~= nil then
+      if type(user.case_sensitive) == "boolean" then
+        validated.case_sensitive = user.case_sensitive
+      else
+        table.insert(
+          warnings,
+          "interactive-graphviz setup: search.case_sensitive must be a boolean; using default false"
+        )
+      end
+    end
+    if user.regex ~= nil then
+      if type(user.regex) == "boolean" then
+        validated.regex = user.regex
+      else
+        table.insert(
+          warnings,
+          "interactive-graphviz setup: search.regex must be a boolean; using default false"
+        )
+      end
+    end
+    opts.search = validated
   end
 
   -- validate expose_to_lan is a boolean (AC2: invalid values warn and reset)

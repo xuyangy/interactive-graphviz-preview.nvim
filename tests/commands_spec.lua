@@ -153,11 +153,18 @@ local function make_render()
   }
 end
 
-local function make_config(engine, open_cmd, engines)
+local function make_config(engine, open_cmd, engines, overrides)
+  overrides = overrides or {}
   local state = {
     engine = engine or "dot",
     open_cmd = open_cmd,
     engines = engines or { "dot", "neato" },
+    -- Interactivity keys carried on the preview URL; production config.setup
+    -- always populates these, so the stub mirrors the validated defaults.
+    preserve_view = overrides.preserve_view == nil and true or overrides.preserve_view,
+    highlight_mode = overrides.highlight_mode or "bidirectional",
+    animate = overrides.animate == nil and true or overrides.animate,
+    search = overrides.search or { scope = "both", case_sensitive = false, regex = false },
   }
   return {
     get = function()
@@ -341,8 +348,74 @@ describe("commands.preview", function()
     cmd.preview()
 
     assert.are.equal(1, #opened, "vim.ui.open must be called exactly once")
-    local expected = string.format("http://127.0.0.1:%d/?sessionId=%d&token=%s", port, bufnr, token)
+    local expected = string.format(
+      "http://127.0.0.1:%d/?sessionId=%d&token=%s"
+        .. "&preserve_view=1&highlight_mode=bidirectional&animate=1"
+        .. "&search_scope=both&search_case=0&search_regex=0",
+      port,
+      bufnr,
+      token
+    )
     assert.are.equal(expected, opened[1])
+  end)
+
+  -- ── Promote-config spec: URL carries the interactivity config params ──────
+
+  it("preview URL carries default-valued config params on a default setup", function()
+    local opened = {}
+    local server = make_server({ state = { running = true, port = 9876, token = "tok-abc" } })
+    local cmd = load_commands(
+      make_vim({ filetype = "dot", bufnr = 3, opened_urls = opened }),
+      server,
+      make_session(),
+      make_config(), -- all interactivity keys at defaults
+      make_log()
+    )
+
+    cmd.preview()
+
+    assert.are.equal(1, #opened)
+    local url = opened[1]
+    assert.truthy(url:find("preserve_view=1", 1, true), "URL must carry preserve_view=1")
+    assert.truthy(
+      url:find("highlight_mode=bidirectional", 1, true),
+      "URL must carry highlight_mode=bidirectional"
+    )
+    assert.truthy(url:find("animate=1", 1, true), "URL must carry animate=1")
+    assert.truthy(url:find("search_scope=both", 1, true), "URL must carry search_scope=both")
+    assert.truthy(url:find("search_case=0", 1, true), "URL must carry search_case=0")
+    assert.truthy(url:find("search_regex=0", 1, true), "URL must carry search_regex=0")
+  end)
+
+  it("preview URL reflects non-default setup() values (booleans as 1/0)", function()
+    local opened = {}
+    local server = make_server({ state = { running = true, port = 9876, token = "tok-abc" } })
+    local cmd = load_commands(
+      make_vim({ filetype = "dot", bufnr = 3, opened_urls = opened }),
+      server,
+      make_session(),
+      make_config("dot", nil, nil, {
+        preserve_view = false,
+        highlight_mode = "upstream",
+        animate = false,
+        search = { scope = "nodes", case_sensitive = true, regex = true },
+      }),
+      make_log()
+    )
+
+    cmd.preview()
+
+    assert.are.equal(1, #opened)
+    local url = opened[1]
+    assert.truthy(url:find("preserve_view=0", 1, true), "URL must carry preserve_view=0")
+    assert.truthy(
+      url:find("highlight_mode=upstream", 1, true),
+      "URL must carry highlight_mode=upstream"
+    )
+    assert.truthy(url:find("animate=0", 1, true), "URL must carry animate=0")
+    assert.truthy(url:find("search_scope=nodes", 1, true), "URL must carry search_scope=nodes")
+    assert.truthy(url:find("search_case=1", 1, true), "URL must carry search_case=1")
+    assert.truthy(url:find("search_regex=1", 1, true), "URL must carry search_regex=1")
   end)
 
   it("DOT buffer: uses open_cmd when configured", function()

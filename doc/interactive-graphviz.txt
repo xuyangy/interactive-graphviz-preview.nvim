@@ -3,7 +3,84 @@
 ==============================================================================
 CONTENTS                                      *interactive-graphviz.nvim*
 
-This is a placeholder vimdoc for the initial scaffold. Full documentation will
-be generated from the README as the plugin behavior is implemented.
+1. Configuration ........................ |interactive-graphviz-config|
+2. Interactivity keys ................... |interactive-graphviz-interactivity|
+
+This vimdoc covers configuration; see the README for commands, install,
+security, and the full feature tour.
+
+==============================================================================
+CONFIGURATION                                 *interactive-graphviz-config*
+
+Call `setup()` with any subset of the keys below (defaults shown). Invalid
+values are rejected with a warning and fall back to the default rather than
+failing setup. >lua
+
+    require("interactive-graphviz").setup({
+      engine = "dot",            -- default engine; must be in `engines`
+      engines = { "dot", "neato" }, -- selectable engines
+      debounce_ms = 200,         -- live-reload debounce (ms), > 0
+      port = 0,                  -- listen port; 0 = ephemeral (OS-assigned)
+      expose_to_lan = false,     -- false = 127.0.0.1; true = 0.0.0.0
+      open_cmd = nil,            -- nil = vim.ui.open; or a command string
+      preserve_view = true,      -- keep zoom/pan across re-renders
+      highlight_mode = "bidirectional", -- single | upstream | downstream
+                                        -- | bidirectional
+      animate = true,            -- animate re-renders + highlight changes
+      search = {                 -- initial state of the live-search (`/`) box
+        scope = "both",          -- both | nodes | edges
+        case_sensitive = false,  -- start with the Aa toggle on
+        regex = false,           -- start with the .* toggle on
+      },
+      heartbeat_ms = 2000,       -- supervision heartbeat interval (ms), > 0
+      log_level = "warn",        -- off | error | warn | info | debug
+    })
+<
+`bind` is not a user-settable key — the bind address is controlled
+exclusively by `expose_to_lan`.
+
+==============================================================================
+INTERACTIVITY KEYS                     *interactive-graphviz-interactivity*
+
+                                          *interactive-graphviz-preserve_view*
+preserve_view ~
+    Boolean, default `true`. Keep the current zoom/pan across live-reload
+    re-renders. Set `false` to reset to fit-to-viewport on every reload.
+
+                                         *interactive-graphviz-highlight_mode*
+highlight_mode ~
+    String enum, default `"bidirectional"`. Which neighbors light up when a
+    node is clicked in the preview:
+
+        `single`         just the clicked node (no neighbors)
+        `upstream`       predecessors + the connecting edges
+        `downstream`     successors + the connecting edges
+        `bidirectional`  both directions (default)
+
+                                                *interactive-graphviz-animate*
+animate ~
+    Boolean, default `true`. Animate graph re-renders and highlight changes.
+    Set `false` for instant updates. The OS-level
+    `prefers-reduced-motion: reduce` preference always disables animation
+    regardless of this key.
+
+                                                 *interactive-graphviz-search*
+search ~
+    Table; the initial state of the live-search box (opened with `/` in the
+    preview). Partial tables are fine — unset subfields keep their defaults:
+
+        `scope`           `"both"` | `"nodes"` | `"edges"` (default `"both"`)
+        `case_sensitive`  boolean (default `false`)
+        `regex`           boolean (default `false`)
+
+                                     *interactive-graphviz-config-apply-rule*
+When config applies ~
+    The interactivity keys (`preserve_view`, `highlight_mode`, `animate`,
+    `search`) are carried to the browser in the preview URL, so they apply
+    when a preview OPENS. An already-open preview does not pick up a changed
+    value live — and note that reloading the tab re-applies the OLD config
+    baked into that tab's URL, not your latest `setup()`. To pick up a
+    change, re-open the preview (`:GraphvizPreviewStop`, then
+    `:GraphvizPreview`).
 
 vim:tw=78:ts=8:noet:ft=help:norl:

@@ -138,9 +138,32 @@ function M.preview()
       log.notify("GraphvizPreview: server ready but port/token missing", vim.log.levels.ERROR)
       return
     end
-    local url = string.format("http://127.0.0.1:%d/?sessionId=%d&token=%s", port, bufnr, token)
+    -- Append the interactivity config as query params (always all of them, even
+    -- at defaults — deterministic URLs, no absent-vs-default ambiguity). config
+    -- validation guarantees every key exists with an enum/boolean value, so the
+    -- values are URL-safe as-is; booleans travel as 1/0. The frontend parses
+    -- these at startup and feeds its clamping setters — config applies when a
+    -- preview opens (re-open to change).
+    local cfg = config.get()
+    local function b01(v)
+      return v and "1" or "0"
+    end
+    local url = string.format(
+      "http://127.0.0.1:%d/?sessionId=%d&token=%s"
+        .. "&preserve_view=%s&highlight_mode=%s&animate=%s"
+        .. "&search_scope=%s&search_case=%s&search_regex=%s",
+      port,
+      bufnr,
+      token,
+      b01(cfg.preserve_view),
+      cfg.highlight_mode,
+      b01(cfg.animate),
+      cfg.search.scope,
+      b01(cfg.search.case_sensitive),
+      b01(cfg.search.regex)
+    )
     log.notify("GraphvizPreview: serving at " .. url, vim.log.levels.INFO)
-    local open_cmd = config.get().open_cmd
+    local open_cmd = cfg.open_cmd
     if open_cmd then
       local parts = tokenize_cmd(open_cmd)
       table.insert(parts, url)

@@ -81,6 +81,12 @@ describe("config.setup — zero-config defaults", function()
     assert.are.equal(false, opts.expose_to_lan)
     assert.is_nil(opts.open_cmd)
     assert.are.equal(true, opts.preserve_view)
+    assert.are.equal("bidirectional", opts.highlight_mode)
+    assert.are.equal(true, opts.animate)
+    assert.are.equal("table", type(opts.search))
+    assert.are.equal("both", opts.search.scope)
+    assert.are.equal(false, opts.search.case_sensitive)
+    assert.are.equal(false, opts.search.regex)
     assert.are.equal(2000, opts.heartbeat_ms)
     assert.are.equal("warn", opts.log_level)
     assert.are.equal(0, #warn_calls, "no warnings on zero-config setup")
@@ -340,6 +346,134 @@ describe("config.setup — preserve_view validation", function()
     assert.are.equal(true, opts.preserve_view)
     assert.are.equal(1, #warn_calls)
     assert.truthy(warn_calls[1]:find("preserve_view", 1, true))
+  end)
+end)
+
+describe("config.setup — highlight_mode validation", function()
+  before_each(reset)
+
+  it("all valid highlight_mode values are accepted without warning", function()
+    for _, mode in ipairs({ "single", "upstream", "downstream", "bidirectional" }) do
+      reset()
+      local opts = config.setup({ highlight_mode = mode })
+      assert.are.equal(mode, opts.highlight_mode)
+      assert.are.equal(0, #warn_calls, "no warning for valid highlight_mode: " .. mode)
+    end
+  end)
+
+  it("highlight_mode = 'sideways' resets to 'bidirectional' and logs a warning", function()
+    local opts = config.setup({ highlight_mode = "sideways" })
+    assert.are.equal("bidirectional", opts.highlight_mode)
+    assert.are.equal(1, #warn_calls, "exactly one warning emitted")
+    assert.truthy(
+      warn_calls[1]:find("highlight_mode", 1, true),
+      "warning message mentions 'highlight_mode'"
+    )
+    assert.truthy(warn_calls[1]:find("sideways", 1, true), "warning message mentions the bad value")
+    assert.truthy(
+      warn_calls[1]:find("single, upstream, downstream, bidirectional", 1, true),
+      "warning message names the allowed values"
+    )
+  end)
+
+  it("highlight_mode = 42 (non-string) resets to 'bidirectional' and logs a warning", function()
+    local opts = config.setup({ highlight_mode = 42 })
+    assert.are.equal("bidirectional", opts.highlight_mode)
+    assert.are.equal(1, #warn_calls)
+    assert.truthy(warn_calls[1]:find("highlight_mode", 1, true))
+  end)
+end)
+
+describe("config.setup — animate validation", function()
+  before_each(reset)
+
+  it("animate = false is valid", function()
+    local opts = config.setup({ animate = false })
+    assert.are.equal(false, opts.animate)
+    assert.are.equal(0, #warn_calls)
+  end)
+
+  it("animate = 'yes' resets to true and logs a warning", function()
+    local opts = config.setup({ animate = "yes" })
+    assert.are.equal(true, opts.animate)
+    assert.are.equal(1, #warn_calls)
+    assert.truthy(warn_calls[1]:find("animate", 1, true), "warning message mentions 'animate'")
+  end)
+end)
+
+describe("config.setup — search validation", function()
+  before_each(reset)
+
+  it("a full valid search table is accepted without warning", function()
+    local opts = config.setup({
+      search = { scope = "edges", case_sensitive = true, regex = true },
+    })
+    assert.are.equal("edges", opts.search.scope)
+    assert.are.equal(true, opts.search.case_sensitive)
+    assert.are.equal(true, opts.search.regex)
+    assert.are.equal(0, #warn_calls)
+  end)
+
+  it("a partial search table keeps defaults for unset subfields", function()
+    local opts = config.setup({ search = { scope = "nodes", case_sensitive = true } })
+    assert.are.equal("nodes", opts.search.scope)
+    assert.are.equal(true, opts.search.case_sensitive)
+    assert.are.equal(false, opts.search.regex, "unset regex keeps the default")
+    assert.are.equal(0, #warn_calls, "no warning for a valid partial search table")
+  end)
+
+  it("all valid search.scope values are accepted without warning", function()
+    for _, scope in ipairs({ "both", "nodes", "edges" }) do
+      reset()
+      local opts = config.setup({ search = { scope = scope } })
+      assert.are.equal(scope, opts.search.scope)
+      assert.are.equal(0, #warn_calls, "no warning for valid search.scope: " .. scope)
+    end
+  end)
+
+  it("search = 'nodes' (non-table) resets to defaults and logs a warning", function()
+    local opts = config.setup({ search = "nodes" })
+    assert.are.equal("both", opts.search.scope)
+    assert.are.equal(false, opts.search.case_sensitive)
+    assert.are.equal(false, opts.search.regex)
+    assert.are.equal(1, #warn_calls)
+    assert.truthy(warn_calls[1]:find("search", 1, true), "warning message mentions 'search'")
+  end)
+
+  it("search.scope = 'everything' resets to 'both' and logs a warning", function()
+    local opts = config.setup({ search = { scope = "everything" } })
+    assert.are.equal("both", opts.search.scope)
+    assert.are.equal(1, #warn_calls)
+    assert.truthy(warn_calls[1]:find("search.scope", 1, true))
+    assert.truthy(warn_calls[1]:find("everything", 1, true), "warning mentions the bad value")
+    assert.truthy(
+      warn_calls[1]:find("both, nodes, edges", 1, true),
+      "warning message names the allowed values"
+    )
+  end)
+
+  it("search.case_sensitive = 1 (non-boolean) resets to false and logs a warning", function()
+    local opts = config.setup({ search = { case_sensitive = 1 } })
+    assert.are.equal(false, opts.search.case_sensitive)
+    assert.are.equal(1, #warn_calls)
+    assert.truthy(warn_calls[1]:find("search.case_sensitive", 1, true))
+  end)
+
+  it("search.regex = 'on' (non-boolean) resets to false and logs a warning", function()
+    local opts = config.setup({ search = { regex = "on" } })
+    assert.are.equal(false, opts.search.regex)
+    assert.are.equal(1, #warn_calls)
+    assert.truthy(warn_calls[1]:find("search.regex", 1, true))
+  end)
+
+  it("an invalid subfield only resets that subfield (others kept)", function()
+    local opts = config.setup({
+      search = { scope = "nodes", case_sensitive = true, regex = "bad" },
+    })
+    assert.are.equal("nodes", opts.search.scope)
+    assert.are.equal(true, opts.search.case_sensitive)
+    assert.are.equal(false, opts.search.regex)
+    assert.are.equal(1, #warn_calls, "exactly one warning (for regex only)")
   end)
 end)
 
