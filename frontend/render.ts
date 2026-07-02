@@ -14,6 +14,7 @@ import { transition } from "d3-transition";
 import { easeCubicInOut } from "d3-ease";
 import { animationsEnabledWith, getAnimate } from "./animate";
 import { createRenderQueue } from "./render-queue";
+import { emitNodeClick } from "./sync";
 import {
   captureViewState,
   restoreViewState,
@@ -558,6 +559,9 @@ export function handleAppClick(e: MouseEvent): void {
   if (e.shiftKey) _selection.add(title);
   else _selection.set(title);
   recomputeAndApplyHighlight();
+  // Story 6.2 — graph→buffer sync as a SIDE EFFECT of the same click: gated,
+  // seam-injected, and after the highlight so 5.2/5.3/5.4 behavior is unchanged.
+  emitNodeClick(title);
 }
 
 /** Handle an Esc keydown: clear highlighting (search-safe predicate). */

@@ -477,6 +477,53 @@ describe("config.setup — search validation", function()
   end)
 end)
 
+describe("config.setup — sync validation (Story 6.2)", function()
+  before_each(reset)
+
+  it("defaults to sync.jump_on_click = true with no warning", function()
+    local opts = config.setup()
+    assert.are.equal(true, opts.sync.jump_on_click)
+    assert.are.equal(0, #warn_calls)
+  end)
+
+  it("sync.jump_on_click = false is valid", function()
+    local opts = config.setup({ sync = { jump_on_click = false } })
+    assert.are.equal(false, opts.sync.jump_on_click)
+    assert.are.equal(0, #warn_calls)
+  end)
+
+  it("sync.jump_on_click = 'yes' (non-boolean) resets to true and logs a warning", function()
+    local opts = config.setup({ sync = { jump_on_click = "yes" } })
+    assert.are.equal(true, opts.sync.jump_on_click)
+    assert.are.equal(1, #warn_calls)
+    assert.truthy(warn_calls[1]:find("sync.jump_on_click", 1, true))
+  end)
+
+  it("sync = 'on' (non-table) resets to defaults and logs a warning", function()
+    local opts = config.setup({ sync = "on" })
+    assert.are.equal(true, opts.sync.jump_on_click)
+    assert.are.equal(1, #warn_calls)
+    assert.truthy(warn_calls[1]:find("sync", 1, true))
+  end)
+
+  it("validation never mutates the caller-owned sync table", function()
+    local user_sync = { jump_on_click = false }
+    config.setup({ sync = user_sync })
+    assert.are.equal(false, user_sync.jump_on_click)
+    assert.are.equal(
+      1,
+      (function()
+        local n = 0
+        for _ in pairs(user_sync) do
+          n = n + 1
+        end
+        return n
+      end)(),
+      "caller table gains no keys"
+    )
+  end)
+end)
+
 describe("config.setup — open_cmd validation", function()
   before_each(reset)
 

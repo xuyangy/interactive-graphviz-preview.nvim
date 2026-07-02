@@ -24,6 +24,7 @@ import {
   showEmptyNotice,
   showError,
 } from "./render";
+import { _resetSync, setJumpOnClick, setNodeClickSender } from "./sync";
 
 // Story 5.2/5.3/5.4 — the live DOM emphasis path (applyHighlightToDom,
 // handleAppClick delegation, recomputeAndApplyHighlight, cluster augment,
@@ -81,6 +82,7 @@ afterEach(() => {
   _resetSearchState();
   _resetHighlightState();
   _setLastGoodDot(null);
+  _resetSync();
   clearError(0);
   document.body.innerHTML = "";
 });
@@ -164,6 +166,60 @@ describe("click-to-highlight DOM emphasis (Story 5.2)", () => {
     // A later plain click drops the augmentation: c dims again.
     clickOn(el("g-a").querySelector("ellipse")!);
     expect(classesOf("g-c")).toEqual(["ig-dimmed"]);
+  });
+});
+
+describe("node-click sync emission (Story 6.2)", () => {
+  function captureSender(): string[] {
+    const seen: string[] = [];
+    setNodeClickSender((nodeId) => {
+      seen.push(nodeId);
+      return true;
+    });
+    return seen;
+  }
+
+  test("a node click calls the registered sender AND still highlights (AC1 side effect)", () => {
+    const seen = captureSender();
+
+    clickOn(el("g-a").querySelector("ellipse")!);
+
+    expect(seen).toEqual(["a"]);
+    // Epic 5 click-highlight is unchanged — same assertions as Story 5.2 above.
+    expect(_selectionSnapshot()).toEqual(["a"]);
+    expect(classesOf("g-a")).toEqual(["ig-selected"]);
+    expect(classesOf("g-b")).toEqual(["ig-neighbor"]);
+  });
+
+  test("disabled gate suppresses the emission but never the highlight (AC3)", () => {
+    const seen = captureSender();
+    setJumpOnClick(false);
+
+    clickOn(el("g-b").querySelector("ellipse")!);
+
+    expect(seen).toEqual([]);
+    expect(_selectionSnapshot()).toEqual(["b"]);
+    expect(classesOf("g-b")).toEqual(["ig-selected"]);
+  });
+
+  test("background click clears the highlight and emits nothing", () => {
+    const seen = captureSender();
+
+    clickOn(el("g-a").querySelector("ellipse")!);
+    clickOn(document.getElementById("app")!.querySelector("svg")!);
+
+    expect(seen).toEqual(["a"]); // only the node click, never the background
+    expect(_selectionSnapshot()).toEqual([]);
+  });
+
+  test("shift+click and alt+click variants also emit (same click path)", () => {
+    const seen = captureSender();
+
+    clickOn(el("g-a").querySelector("ellipse")!);
+    clickOn(el("g-c").querySelector("ellipse")!, { shiftKey: true });
+    clickOn(el("g-b").querySelector("ellipse")!, { altKey: true });
+
+    expect(seen).toEqual(["a", "c", "b"]);
   });
 });
 

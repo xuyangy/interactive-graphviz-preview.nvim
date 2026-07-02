@@ -165,6 +165,7 @@ local function make_config(engine, open_cmd, engines, overrides)
     highlight_mode = overrides.highlight_mode or "bidirectional",
     animate = overrides.animate == nil and true or overrides.animate,
     search = overrides.search or { scope = "both", case_sensitive = false, regex = false },
+    sync = overrides.sync or { jump_on_click = true },
   }
   return {
     get = function()
@@ -351,7 +352,8 @@ describe("commands.preview", function()
     local expected = string.format(
       "http://127.0.0.1:%d/?sessionId=%d&token=%s"
         .. "&preserve_view=1&highlight_mode=bidirectional&animate=1"
-        .. "&search_scope=both&search_case=0&search_regex=0",
+        .. "&search_scope=both&search_case=0&search_regex=0"
+        .. "&sync_jump_on_click=1",
       port,
       bufnr,
       token
@@ -385,6 +387,7 @@ describe("commands.preview", function()
     assert.truthy(url:find("search_scope=both", 1, true), "URL must carry search_scope=both")
     assert.truthy(url:find("search_case=0", 1, true), "URL must carry search_case=0")
     assert.truthy(url:find("search_regex=0", 1, true), "URL must carry search_regex=0")
+    assert.truthy(url:find("sync_jump_on_click=1", 1, true), "URL must carry sync_jump_on_click=1")
   end)
 
   it("preview URL reflects non-default setup() values (booleans as 1/0)", function()
@@ -399,6 +402,7 @@ describe("commands.preview", function()
         highlight_mode = "upstream",
         animate = false,
         search = { scope = "nodes", case_sensitive = true, regex = true },
+        sync = { jump_on_click = false },
       }),
       make_log()
     )
@@ -416,6 +420,7 @@ describe("commands.preview", function()
     assert.truthy(url:find("search_scope=nodes", 1, true), "URL must carry search_scope=nodes")
     assert.truthy(url:find("search_case=1", 1, true), "URL must carry search_case=1")
     assert.truthy(url:find("search_regex=1", 1, true), "URL must carry search_regex=1")
+    assert.truthy(url:find("sync_jump_on_click=0", 1, true), "URL must carry sync_jump_on_click=0")
   end)
 
   it("DOT buffer: uses open_cmd when configured", function()

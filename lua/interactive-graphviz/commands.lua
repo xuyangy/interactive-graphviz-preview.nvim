@@ -151,7 +151,8 @@ function M.preview()
     local url = string.format(
       "http://127.0.0.1:%d/?sessionId=%d&token=%s"
         .. "&preserve_view=%s&highlight_mode=%s&animate=%s"
-        .. "&search_scope=%s&search_case=%s&search_regex=%s",
+        .. "&search_scope=%s&search_case=%s&search_regex=%s"
+        .. "&sync_jump_on_click=%s",
       port,
       bufnr,
       token,
@@ -160,7 +161,8 @@ function M.preview()
       b01(cfg.animate),
       cfg.search.scope,
       b01(cfg.search.case_sensitive),
-      b01(cfg.search.regex)
+      b01(cfg.search.regex),
+      b01(cfg.sync.jump_on_click)
     )
     log.notify("GraphvizPreview: serving at " .. url, vim.log.levels.INFO)
     local open_cmd = cfg.open_cmd

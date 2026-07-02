@@ -92,8 +92,18 @@ local function dispatch(msg)
     local fn = log[level] or log.info
     fn(tostring(msg.message or ""))
   elseif t == "node_click" then
-    -- Story 6.1: spine only — log-and-ignore. The cursor jump is Story 6.2.
-    log.debug("node_click received (no-op): " .. tostring(msg.nodeId))
+    -- Story 6.2: validated, protected dispatch — sync.lua owns node matching
+    -- and the cursor move; a handler error must never break the stdout loop.
+    if type(msg.sessionId) ~= "number" or type(msg.nodeId) ~= "string" or msg.nodeId == "" then
+      log.debug("node_click with invalid payload ignored")
+    else
+      local ok, err = pcall(function()
+        require("interactive-graphviz.sync").handle_node_click(msg.sessionId, msg.nodeId)
+      end)
+      if not ok then
+        log.warn("node_click handler error: " .. tostring(err))
+      end
+    end
   end
   -- unknown server->Lua types are ignored (channel stays warm without v1 surface)
 end

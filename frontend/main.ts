@@ -10,6 +10,7 @@ import {
   installSearchHandlers,
 } from "./render";
 import { isBlankDot } from "./dot";
+import { setNodeClickSender } from "./sync";
 import { applyUrlConfig } from "./urlconfig";
 
 // Resolve the interactivity config from the preview URL FIRST — this ordering
@@ -79,6 +80,12 @@ const _wsClient = createWebSocketClient({
   },
   // session_closed is stash/log-only until Story 1.7.
 });
+
+// Story 6.2 — wire the graph→buffer sync seam: render.ts's click handler calls
+// emitNodeClick(title), which forwards through this sender (gated by
+// sync_jump_on_click via the applyUrlConfig call above). Registered AFTER the
+// client exists; before this line emitNodeClick is a safe no-op.
+setNodeClickSender((nodeId) => _wsClient.sendNodeClick(nodeId));
 
 // Expose the stash for debugging / future render wiring.
 (window as unknown as { __igEnvelopes?: ProtocolMessage[] }).__igEnvelopes = lastEnvelopes;

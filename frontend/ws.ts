@@ -12,6 +12,13 @@ export interface WebSocketClientHandlers {
 export interface WebSocketClient {
   connected: boolean;
   close: () => void;
+  /**
+   * Send a `node_click{sessionId,nodeId}` frame (Story 6.2). Returns false —
+   * and sends nothing — before the socket is open or when the URL sessionId is
+   * missing/non-numeric. The envelope carries EXACTLY type/sessionId/nodeId:
+   * never `v` (render-only token), never `token` (hello-only), no extra keys.
+   */
+  sendNodeClick: (nodeId: string) => boolean;
 }
 
 interface ConnectParams {
@@ -36,11 +43,31 @@ function wsUrl(): string {
  * The envelope is never redefined here — types come from `frontend/protocol.ts`.
  */
 export function createWebSocketClient(handlers: WebSocketClientHandlers = {}): WebSocketClient {
-  const client: WebSocketClient = { connected: false, close: () => {} };
+  const client: WebSocketClient = {
+    connected: false,
+    close: () => {},
+    sendNodeClick: () => false,
+  };
   const { sessionId, token } = readConnectParams();
 
   const socket = new WebSocket(wsUrl());
   client.close = () => socket.close();
+
+  client.sendNodeClick = (nodeId: string): boolean => {
+    if (!client.connected) return false;
+    if (sessionId === null || sessionId.trim() === "") return false;
+    const numericSessionId = Number(sessionId);
+    if (!Number.isInteger(numericSessionId)) return false;
+    // Exact three-key envelope — the server drops node_click frames with any
+    // other shape (hasExactlyKeys), so adding a key here is a silent outage.
+    const msg: ProtocolMessage = {
+      type: "node_click",
+      sessionId: numericSessionId,
+      nodeId,
+    };
+    socket.send(JSON.stringify(msg));
+    return true;
+  };
 
   socket.addEventListener("open", () => {
     client.connected = true;

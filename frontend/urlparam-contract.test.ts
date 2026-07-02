@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { getAnimate, setAnimate } from "./animate";
 import { _resetHighlightMode, getHighlightMode, setHighlightMode } from "./interact";
 import { getSearchConfig, _resetSearchConfig, setSearchConfig } from "./search";
+import { _resetSync, getJumpOnClick, setJumpOnClick } from "./sync";
 import { applyUrlConfig } from "./urlconfig";
 import { getPreserveView, setPreserveView } from "./viewstate";
 
@@ -22,7 +23,7 @@ const COMMANDS_LUA = `${REPO}/lua/interactive-graphviz/commands.lua`;
 const CONFIG_LUA = `${REPO}/lua/interactive-graphviz/config.lua`;
 const URLCONFIG_TS = `${import.meta.dir}/urlconfig.ts`;
 
-// The 6 config-derived params. `sessionId` + `token` are runtime values (emitted by
+// The 7 config-derived params. `sessionId` + `token` are runtime values (emitted by
 // commands.lua, read by ws.ts) — not part of the config contract, so excluded.
 const CONFIG_PARAMS = [
   "preserve_view",
@@ -31,6 +32,7 @@ const CONFIG_PARAMS = [
   "search_scope",
   "search_case",
   "search_regex",
+  "sync_jump_on_click",
 ].sort();
 
 const read = (path: string): Promise<string> => Bun.file(path).text();
@@ -54,6 +56,7 @@ afterEach(() => {
   _resetHighlightMode();
   setAnimate(true);
   _resetSearchConfig();
+  _resetSync();
 });
 
 describe("Lua <-> TS URL-param contract", () => {
@@ -93,6 +96,7 @@ describe("Lua <-> TS URL-param contract", () => {
         caseSensitive: luaBool(config, "case_sensitive"),
         regex: luaBool(config, "regex"),
       },
+      syncJumpOnClick: luaBool(config, "jump_on_click"),
     };
 
     // Start from non-default frontend state so this proves urlconfig.ts parses and
@@ -101,16 +105,19 @@ describe("Lua <-> TS URL-param contract", () => {
     setHighlightMode("upstream");
     setAnimate(false);
     setSearchConfig({ scope: "nodes", caseSensitive: true, regex: true });
+    setJumpOnClick(false);
 
     applyUrlConfig(
       `?preserve_view=${b01(luaDefaults.preserveView)}&highlight_mode=${luaDefaults.highlightMode}` +
         `&animate=${b01(luaDefaults.animate)}&search_scope=${luaDefaults.search.scope}` +
-        `&search_case=${b01(luaDefaults.search.caseSensitive)}&search_regex=${b01(luaDefaults.search.regex)}`,
+        `&search_case=${b01(luaDefaults.search.caseSensitive)}&search_regex=${b01(luaDefaults.search.regex)}` +
+        `&sync_jump_on_click=${b01(luaDefaults.syncJumpOnClick)}`,
     );
 
     expect(getPreserveView()).toBe(luaDefaults.preserveView);
     expect(getHighlightMode()).toBe(luaDefaults.highlightMode);
     expect(getAnimate()).toBe(luaDefaults.animate);
     expect(getSearchConfig()).toEqual(luaDefaults.search);
+    expect(getJumpOnClick()).toBe(luaDefaults.syncJumpOnClick);
   });
 });

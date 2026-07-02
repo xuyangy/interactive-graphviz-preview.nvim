@@ -4,6 +4,7 @@ import { getPreserveView, setPreserveView } from "./viewstate";
 import { _resetHighlightMode, getHighlightMode } from "./interact";
 import { _resetSearchConfig, getSearchConfig } from "./search";
 import { getAnimate, setAnimate } from "./animate";
+import { _resetSync, getJumpOnClick, setJumpOnClick } from "./sync";
 
 // Spec "promote interactivity config" — the URL is the one Lua→browser config
 // channel. parseUrlConfig is pure (no DOM needed: URLSearchParams is a plain
@@ -17,6 +18,7 @@ afterEach(() => {
   _resetHighlightMode();
   _resetSearchConfig();
   setAnimate(true);
+  _resetSync();
 });
 
 describe("parseUrlConfig (pure)", () => {
@@ -31,34 +33,40 @@ describe("parseUrlConfig (pure)", () => {
   test("full default-valued param set parses to the explicit defaults", () => {
     const cfg = parseUrlConfig(
       "?sessionId=3&token=t&preserve_view=1&highlight_mode=bidirectional&animate=1" +
-        "&search_scope=both&search_case=0&search_regex=0",
+        "&search_scope=both&search_case=0&search_regex=0&sync_jump_on_click=1",
     );
     expect(cfg).toEqual({
       preserveView: true,
       highlightMode: "bidirectional",
       animate: true,
       search: { scope: "both", caseSensitive: false, regex: false },
+      syncJumpOnClick: true,
     });
   });
 
   test("non-default values parse through (booleans 0/1, enums as strings)", () => {
     const cfg = parseUrlConfig(
-      "?preserve_view=0&highlight_mode=upstream&animate=0&search_scope=nodes&search_case=1&search_regex=1",
+      "?preserve_view=0&highlight_mode=upstream&animate=0&search_scope=nodes&search_case=1&search_regex=1" +
+        "&sync_jump_on_click=0",
     );
     expect(cfg).toEqual({
       preserveView: false,
       highlightMode: "upstream",
       animate: false,
       search: { scope: "nodes", caseSensitive: true, regex: true },
+      syncJumpOnClick: false,
     });
   });
 
   test("tampered boolean values are treated as absent (no key)", () => {
-    const cfg = parseUrlConfig("?preserve_view=banana&animate=yes&search_case=true");
+    const cfg = parseUrlConfig(
+      "?preserve_view=banana&animate=yes&search_case=true&sync_jump_on_click=on",
+    );
     expect(cfg.preserveView).toBeUndefined();
     expect(cfg.animate).toBeUndefined();
     // search_case was garbage → no meaningful search subfield → no search key
     expect(cfg.search).toBeUndefined();
+    expect(cfg.syncJumpOnClick).toBeUndefined();
   });
 
   test("tampered enum values pass through (the setters own enum clamping)", () => {
@@ -85,23 +93,35 @@ describe("applyUrlConfig (feeds the clamping setters)", () => {
     expect(getHighlightMode()).toBe("bidirectional");
     expect(getAnimate()).toBe(true);
     expect(getSearchConfig()).toEqual({ caseSensitive: false, regex: false, scope: "both" });
+    expect(getJumpOnClick()).toBe(true);
   });
 
   test("non-default params land in every module getter", () => {
     applyUrlConfig(
-      "?preserve_view=0&highlight_mode=upstream&animate=0&search_scope=nodes&search_case=1&search_regex=1",
+      "?preserve_view=0&highlight_mode=upstream&animate=0&search_scope=nodes&search_case=1&search_regex=1" +
+        "&sync_jump_on_click=0",
     );
     expect(getPreserveView()).toBe(false);
     expect(getHighlightMode()).toBe("upstream");
     expect(getAnimate()).toBe(false);
     expect(getSearchConfig()).toEqual({ caseSensitive: true, regex: true, scope: "nodes" });
+    expect(getJumpOnClick()).toBe(false);
+  });
+
+  test("sync_jump_on_click=1 re-enables a previously disabled gate", () => {
+    setJumpOnClick(false);
+    applyUrlConfig("?sync_jump_on_click=1");
+    expect(getJumpOnClick()).toBe(true);
   });
 
   test("tampered URL never throws; setters clamp to defaults (I/O matrix row)", () => {
-    expect(() => applyUrlConfig("?highlight_mode=junk&animate=banana&search_scope=galaxy")).not.toThrow();
+    expect(() =>
+      applyUrlConfig("?highlight_mode=junk&animate=banana&search_scope=galaxy&sync_jump_on_click=yes"),
+    ).not.toThrow();
     expect(getHighlightMode()).toBe("bidirectional"); // setHighlightMode clamps
     expect(getAnimate()).toBe(true); // garbage boolean → no call → default
     expect(getSearchConfig().scope).toBe("both"); // setSearchConfig ignores bad scope
+    expect(getJumpOnClick()).toBe(true); // garbage boolean → no call → default
   });
 
   test("partial search config keeps defaults for unset subfields", () => {

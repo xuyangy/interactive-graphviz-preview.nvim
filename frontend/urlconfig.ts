@@ -26,6 +26,7 @@
 import { setAnimate } from "./animate";
 import { setHighlightMode } from "./interact";
 import { setSearchConfig } from "./search";
+import { setJumpOnClick } from "./sync";
 import { setPreserveView } from "./viewstate";
 
 /** The typed partial config carried by the preview URL. Absent key = no param. */
@@ -41,6 +42,8 @@ export interface UrlConfig {
     caseSensitive?: boolean;
     regex?: boolean;
   };
+  /** Story 6.2 — the browser-side graph→buffer jump gate. */
+  syncJumpOnClick?: boolean;
 }
 
 /** Map exactly "1"/"0" to true/false; absent or garbage → undefined (no call). */
@@ -79,6 +82,9 @@ export function parseUrlConfig(search: string): UrlConfig {
     if (regex !== undefined) cfg.search.regex = regex;
   }
 
+  const syncJumpOnClick = parseBoolParam(params.get("sync_jump_on_click"));
+  if (syncJumpOnClick !== undefined) cfg.syncJumpOnClick = syncJumpOnClick;
+
   return cfg;
 }
 
@@ -93,5 +99,6 @@ export function applyUrlConfig(search: string): UrlConfig {
   if (cfg.highlightMode !== undefined) setHighlightMode(cfg.highlightMode);
   if (cfg.animate !== undefined) setAnimate(cfg.animate);
   if (cfg.search !== undefined) setSearchConfig(cfg.search);
+  if (cfg.syncJumpOnClick !== undefined) setJumpOnClick(cfg.syncJumpOnClick);
   return cfg;
 }

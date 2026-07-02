@@ -16,6 +16,11 @@ M.defaults = {
     case_sensitive = false,
     regex = false,
   },
+  -- Story 6.2: editor↔graph sync. Only jump_on_click exists yet; the rest of
+  -- the sync surface (highlight_on_cursor, cursor_debounce_ms) is Story 6.3/6.4.
+  sync = {
+    jump_on_click = true,
+  },
   heartbeat_ms = 2000,
   log_level = "warn",
 }
@@ -225,6 +230,28 @@ local function validate(opts)
       end
     end
     opts.search = validated
+  end
+
+  -- validate sync is a table; same fresh-table discipline as search above so
+  -- validation never mutates caller-owned data. Only jump_on_click is validated
+  -- here (Story 6.2); broader sync hardening/unknown-key warnings are Story 6.4.
+  if type(opts.sync) ~= "table" then
+    table.insert(warnings, "interactive-graphviz setup: sync must be a table; using defaults")
+    opts.sync = vim.deepcopy(M.defaults.sync)
+  else
+    local user = opts.sync
+    local validated = vim.deepcopy(M.defaults.sync)
+    if user.jump_on_click ~= nil then
+      if type(user.jump_on_click) == "boolean" then
+        validated.jump_on_click = user.jump_on_click
+      else
+        table.insert(
+          warnings,
+          "interactive-graphviz setup: sync.jump_on_click must be a boolean; using default true"
+        )
+      end
+    end
+    opts.sync = validated
   end
 
   -- validate expose_to_lan is a boolean (AC2: invalid values warn and reset)
