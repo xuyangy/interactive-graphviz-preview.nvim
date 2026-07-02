@@ -207,6 +207,29 @@ Highlight changes and re-renders animate smoothly; config-gated.
 - Transitions use d3-graphviz; a non-animated fallback exists.
 - Interactions stay responsive without perceptible lag (NFR-7).
 
+### 4.6 Bidirectional Sync *(v3 — added 2026-06-11; the differentiator)*
+**Description:** The Preview becomes a navigation surface for the source: clicking a node moves
+the Neovim cursor to its source line, and moving the cursor onto a node emphasizes it in the
+Preview. Activates the v1-dormant browser→server return channel (token-gated since v1). Adds no
+install prerequisites (SM-C1). Realizes the §1 Vision differentiator; see §6.1c.
+
+**Functional Requirements:**
+
+#### FR-19: Click-to-source jump
+Clicking a node in the Preview moves the Neovim cursor to that node's source line.
+**Consequences (testable):**
+- The cursor lands on the node's first definition/occurrence in the buffer (quoted IDs handled).
+- A node absent from the current buffer produces an informative message, never an error.
+- Gated by `sync.jump_on_click` config; only token-validated, session-subscribed browser
+  connections can trigger a jump (NFR-4 holds).
+
+#### FR-20: Cursor-to-graph emphasis
+Moving the cursor onto a node's line emphasizes that node in the Preview.
+**Consequences (testable):**
+- Debounced (`sync.cursor_debounce_ms`, default 150 ms); flows over the existing forward channel.
+- Emphasis is visually distinct from click/search highlight and never dims the rest of the Graph.
+- Leaving a node line (or disabling `sync.highlight_on_cursor`) clears the emphasis.
+
 ### 4.3 Installation and distribution
 **Description:** The plugin installs with no runtime Node/yarn and no system Graphviz, via a
 per-platform Prebuilt binary, with a Build-from-source fallback for uncovered platforms.
@@ -269,16 +292,20 @@ and best-effort view preservation.
 - **v1 hardening (user-facing slice):** the triaged `deferred-work.md` defects + Windows no-orphan
   verification. Delivered by Epic 4.
 
+### 6.1c In Scope (v3 — added 2026-06-11)
+- **Bidirectional graph↔buffer sync (FR-19–FR-20):** click node → cursor to source line; cursor →
+  Preview emphasis. Activates the v1-dormant return channel (token-gated since v1); adds no
+  install prerequisites (SM-C1). Delivered by Epic 6; see `sprint-change-proposal-2026-06-11.md`.
+
 ### 6.2 Out of Scope for MVP
 - ~~**Interactivity layer**~~ — **promoted to v2 scope (§6.1b, FR-15–FR-18) on 2026-06-07.**
+- ~~**Bidirectional graph↔buffer sync**~~ — **promoted to v3 scope (§6.1c, FR-19–FR-20) on 2026-06-11.**
 - **Auto-open Preview on DOT file open.** v1 is command-started only; revisit after the manual
   lifecycle is stable.
 - **Export SVG / Export DOT from the Preview.** Deferred until after the live preview loop and
   zero-prerequisite installation are working.
 - **Additional layout engines** — `fdp`, `circo`, `twopi`, `osage`, `patchwork`. v1 ships `dot`
   and `neato`; the config keeps an engine-list seam for these.
-- **Bidirectional graph↔buffer sync** — click node → cursor to source line; cursor → browser
-  highlight. *Deferred ("fancy later"); the differentiator north star.*
 - **Theme integration** — recolor Graph to match Neovim colorscheme. *Deferred.*
 - **System-`dot` hybrid render path** — WASM-only for v1; revisit only if large-graph performance
   becomes a real complaint.
@@ -337,6 +364,10 @@ post-v1 hardening decision.
 - **NFR-7 (Interaction responsiveness — v2):** Highlight, search, and zoom/pan respond without
   perceptible lag. All interactions are **frontend-local** (no server round-trip), preserving NFR-1
   and SM-C1 — interactivity adds no install prerequisites.
+- **NFR-8 (Sync integrity & responsiveness — v3):** Sync round-trips feel immediate at interactive
+  scale. Sync messages carry no `v` and can never displace or reorder renders; the two sync
+  directions cannot feedback-loop (echo suppression). Activating the return channel adds zero new
+  install prerequisites (SM-C1) and no new exposure (token-gated, localhost — NFR-4).
 
 ## Dependency & Runtime Targets
 - **Editor:** Neovim 0.10+.

@@ -340,6 +340,42 @@ on the already-rendered SVG client-side, so it requires **no new wire messages a
 - **Invariant preserved:** no new install prerequisites (NFR-1 / SM-C1) — all of the above ships in
   the already-bundled, already-embedded frontend.
 
+### Return Channel Activation (v3 — bidirectional sync) *(added 2026-06-11)*
+
+Epic 6 (FR-19–FR-20) is the change the dormant return channel was reserved for. It is the **first
+protocol expansion since Story 1.3** and touches all three tiers; the security posture was pre-paid
+in v1 (token-gated `hello`, un-subscribed sockets rejected, localhost bind — no new exposure
+decision needed).
+
+**Message set additions** (canonical in `server/protocol.ts`, mirrored in `protocol.lua`):
+- **browser→server: `node_click{sessionId, nodeId}`** — accepted only from a subscribed,
+  token-validated socket; relayed **verbatim server→Lua over stdout** (the first feature data on
+  that hop beyond `ready`/`pong`/`log`).
+- **Lua→server→browser: `emphasize{sessionId, nodeId|null}`** — forward relay like `render`;
+  `null` clears the emphasis.
+
+**Invariants:**
+- `v` is minted for `render` only — sync messages never carry or mutate it; sync is stateless
+  last-wins and can never displace or reorder renders (NFR-8).
+- Unknown types remain logged-and-ignored on every hop; stdout remains the protocol channel;
+  session-map ownership is unchanged.
+- **Echo suppression:** a sync-initiated cursor jump sets a one-shot flag consumed by the next
+  CursorMoved tick, so click→jump does not echo an `emphasize` back to the browser.
+- The clicked node may no longer exist in the edited buffer (browser lags by debounce): Lua
+  degrades gracefully — informative notify, no-op.
+
+**Node↔line mapping lives Lua-side, on demand.** New `lua/interactive-graphviz/sync.lua` scans the
+buffer for the node's first definition/occurrence (word-boundary, quoted-ID aware) at click time.
+No maintained source map, no new deps; the frontend stays dumb — it already derives `nodeId` from
+SVG titles (Epic 5 machinery) and only emits it. Upgradeable to a real source map later without a
+protocol change. New `frontend/sync.ts` owns the emit gate and the cursor-echo emphasis treatment
+(reusing the Epic 5 emphasis seams; passive treatment that never contends with search/click
+highlight precedence).
+
+**Config additions (FR-14 seam):** `sync = { jump_on_click = true, highlight_on_cursor = true,
+cursor_debounce_ms = 150 }`. Browser-side gating of `node_click` emission rides the v0.2.0
+URL-param path (`frontend/urlconfig.ts`).
+
 ### Security
 
 - Bind the literal `127.0.0.1` by default (not `0.0.0.0`, not `localhost`/`::1`).
@@ -702,6 +738,8 @@ user's default browser (or `open_cmd`); the OS process model (process group, EOF
 
 **Data flow (one-way in v1):** Neovim buffer → Lua → server → browser SVG. The
 browser→server channel exists (hello/ack heartbeat) but carries no feature data in v1.
+*(v3 — added 2026-06-11: the return channel now carries `node_click` browser→server→Lua; see
+"Return Channel Activation (v3)".)*
 
 ### File Organization Patterns
 

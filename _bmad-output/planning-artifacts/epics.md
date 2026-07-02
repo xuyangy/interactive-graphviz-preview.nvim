@@ -176,6 +176,17 @@ so NFR-1 / SM-C1 are preserved.
 **FRs covered:** FR-15, FR-16, FR-17, FR-18
 **NFRs exercised:** NFR-7 (interaction responsiveness), NFR-1 / SM-C1 (no new prerequisites)
 
+### Epic 6: Bidirectional Graph↔Buffer Sync — *v3, added 2026-06-11*
+A user clicks a node in the Preview and lands on its source line in Neovim, and moves the cursor
+onto a node to see it emphasized in the Preview — the differentiator the PRD's Vision reserved.
+**Activates the v1-dormant browser→server return channel** (token-gated since v1): the first
+protocol expansion since Story 1.3, touching all three tiers. Sync messages never carry `v`
+(render-only token); the two directions are echo-suppressed; no new install prerequisites
+(SM-C1). See `sprint-change-proposal-2026-06-11.md`.
+**FRs covered:** FR-19, FR-20
+**NFRs exercised:** NFR-8 (sync integrity/responsiveness), NFR-4 (token now load-bearing),
+NFR-1 / SM-C1
+
 ## Epic 1: Live Graphviz Preview
 
 A user runs `:GraphvizPreview` on a `.dot`/`.gv` buffer and watches their graph render
@@ -540,3 +551,101 @@ So that the Graph is pleasant and legible to interact with.
 **When** highlights change or the Graph re-renders
 **Then** transitions animate via d3-graphviz, config-gated, with a non-animated fallback;
 interactions stay responsive without perceptible lag (FR-18, NFR-7)
+
+## Epic 6: Bidirectional Graph↔Buffer Sync
+
+*Added by correct-course 2026-06-11. Activates the dormant return channel — the first protocol
+expansion since Story 1.3. Stories sequenced so 6.1 lays the protocol spine with zero user-visible
+behavior, 6.2 ships the headline direction, 6.3 completes bidirectionality, 6.4 closes
+config/docs/debt. Design invariants in `architecture.md` "Return Channel Activation (v3)".*
+
+### Story 6.1: Activate the return channel (protocol spine)
+
+As the system,
+I want `node_click` and `emphasize` messages flowing through all three tiers under contract test,
+So that both sync directions build on a verified protocol spine with no user-visible risk.
+
+**Acceptance Criteria:**
+
+**Given** the canonical contract in `server/protocol.ts`
+**When** this story is complete
+**Then** `node_click{sessionId,nodeId}` (browser→server→Lua) and `emphasize{sessionId,nodeId|null}`
+(Lua→server→browser) are defined in `protocol.ts` and mirrored in `protocol.lua`, with camelCase
+fields + snake_case types, and neither message carries `v`
+**And** the server relays a `node_click` from a **subscribed, token-validated** socket verbatim to
+Lua over stdout; a `node_click` from an un-subscribed/invalid socket is rejected, not relayed
+**And** the server relays `emphasize` to exactly that session's subscribers (never cross-session)
+**And** a contract test round-trips browser→server→Lua and Lua→server→browser, asserting the same
+envelope shape on every hop
+**And** the Lua handler for `node_click` logs-and-ignores (no user-visible behavior yet); unknown
+types remain logged-and-ignored on every hop
+**And** a cross-boundary contract test asserts `commands.lua` and `frontend/urlconfig.ts` agree on
+the URL-param names and defaults (closes the deferred-work Lua↔TS config-contract item)
+
+### Story 6.2: Click node → jump to source line
+
+As a user reading a Graph in the Preview,
+I want clicking a node to put my Neovim cursor on that node's source line,
+So that the Preview becomes a navigation surface for the DOT source.
+
+**Acceptance Criteria:**
+
+**Given** an open preview and `sync.jump_on_click = true`
+**When** the user clicks a node in the Preview
+**Then** the frontend emits `node_click` and the Neovim cursor moves to the node's first
+definition/occurrence in the buffer — word-boundary matched, quoted-ID aware
+(`lua/interactive-graphviz/sync.lua`) (FR-19)
+**And** the Epic 5 click-highlight behavior is unchanged (jump is a side effect, not a replacement)
+
+**Given** the clicked node no longer exists in the edited buffer
+**When** the `node_click` arrives
+**Then** Lua degrades gracefully — informative notify, no cursor move, never an error (NFR-8)
+
+**Given** `sync.jump_on_click = false`
+**When** the user clicks a node
+**Then** no `node_click` is emitted (gated browser-side via the URL-param path)
+**And** the node→line matcher is covered by busted specs including quoted/escaped IDs and
+multiple-occurrence cases
+
+### Story 6.3: Cursor → graph emphasis
+
+As a user editing DOT,
+I want the node under my cursor emphasized in the Preview,
+So that I always see where I am in the rendered Graph.
+
+**Acceptance Criteria:**
+
+**Given** an open preview and `sync.highlight_on_cursor = true`
+**When** the cursor rests on a line containing a node (debounced
+`sync.cursor_debounce_ms`, default 150)
+**Then** an `emphasize{nodeId}` flows Lua→server→browser and the node receives a **passive,
+visually distinct** emphasis that never dims the rest of the Graph and never contends with the
+Epic 5 search/click highlight precedence (FR-20)
+**And** the line→node match reuses Story 6.2's matcher
+
+**Given** the cursor leaves the node's line (or the feature is disabled)
+**When** the debounce fires
+**Then** `emphasize{null}` clears the emphasis
+
+**Given** a Story 6.2 sync-initiated cursor jump
+**When** the resulting CursorMoved fires
+**Then** a one-shot suppression flag prevents echoing an `emphasize` back (no feedback loop, NFR-8)
+
+### Story 6.4: Sync config, hardening, and docs
+
+As a Neovim user,
+I want the sync features configurable from `setup()` with typo-safe validation and real docs,
+So that v3 is a finished, discoverable feature rather than hidden plumbing.
+
+**Acceptance Criteria:**
+
+**Given** `setup{ sync = { ... } }`
+**When** config is validated
+**Then** `sync.jump_on_click`, `sync.highlight_on_cursor`, and `sync.cursor_debounce_ms` have
+documented defaults, are validated with clear fallback messages, and zero-config works (FR-14)
+**And** **unknown keys warn**: unknown top-level keys and unknown subfields of `search` and `sync`
+produce a clear warning instead of silent acceptance (closes the deferred-work
+warn-on-unknown-keys item)
+**And** README, vimdoc, and the UX spec document both sync directions, their gates, and the
+focus-stays-in-browser caveat
+**And** a bookkeeping sweep confirms Epic 6 story headers match sprint-status
