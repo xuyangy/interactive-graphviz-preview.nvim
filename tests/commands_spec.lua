@@ -12,6 +12,7 @@ local function make_vim(opts)
   local lines = opts.lines or { "digraph{a->b}" }
   local opened_urls = opts.opened_urls or {}
   local system_calls = opts.system_calls or {}
+  local echo_calls = opts.echo_calls or {}
   local buf_valid = opts.buf_valid ~= false -- default true
 
   local bo_proxy = setmetatable({}, {
@@ -40,6 +41,14 @@ local function make_vim(opts)
       end,
       nvim_create_autocmd = function(_, _) end,
       nvim_del_augroup_by_name = function(_) end,
+      nvim_echo = function(chunks, history, echo_opts)
+        -- Pin the real API's call shape: a chunk LIST and an opts table. A call
+        -- like nvim_echo(url, true) would pass a loose stub but throw in nvim.
+        assert(type(chunks) == "table", "nvim_echo: chunks must be a list of {text, hl} tuples")
+        assert(type(chunks[1]) == "table", "nvim_echo: each chunk must be a table")
+        assert(type(echo_opts) == "table", "nvim_echo: opts table is required")
+        table.insert(echo_calls, { chunks = chunks, history = history, opts = echo_opts })
+      end,
     },
     bo = bo_proxy,
     split = function(str, _, _)
@@ -874,6 +883,166 @@ describe("commands.toggle", function()
 end)
 
 -- ── commands.engine ───────────────────────────────────────────────────────────
+
+describe("commands.url", function()
+  after_each(function()
+    package.loaded["interactive-graphviz.commands"] = nil
+    package.loaded["interactive-graphviz.server"] = nil
+    package.loaded["interactive-graphviz.session"] = nil
+    package.loaded["interactive-graphviz.config"] = nil
+    package.loaded["interactive-graphviz.log"] = nil
+    package.loaded["interactive-graphviz.render"] = nil
+    _G.vim = nil
+  end)
+
+  it("echoes the FULL preview URL into message history (history=true)", function()
+    local echoed = {}
+    local bufnr = 3
+    local server = make_server({ state = { running = true, port = 9876, token = "tok-abc" } })
+    local log = make_log()
+    local cmd = load_commands(
+      make_vim({ filetype = "dot", bufnr = bufnr, echo_calls = echoed }),
+      server,
+      make_session({ active = { [bufnr] = true } }),
+      make_config(),
+      log
+    )
+
+    local url = cmd.url()
+
+    local expected = "http://127.0.0.1:9876/?sessionId=3&token=tok-abc"
+      .. "&preserve_view=1&highlight_mode=bidirectional&animate=1"
+      .. "&search_scope=both&search_case=0&search_regex=0"
+      .. "&sync_jump_on_click=1"
+    assert.are.equal(expected, url)
+    assert.are.equal(1, #echoed, "nvim_echo called exactly once")
+    assert.are.equal(true, echoed[1].history, "URL must land in :messages history")
+    assert.are.equal(expected, echoed[1].chunks[1][1], "the full URL is the echoed text")
+    assert.are.equal(0, #log._notified, "no notify on the success path")
+  end)
+
+  it("matches the URL that preview actually opened (single source of truth)", function()
+    local echoed = {}
+    local opened = {}
+    local bufnr = 3
+    local server = make_server({ state = { running = true, port = 9876, token = "tok-abc" } })
+    local session = make_session()
+    local cmd = load_commands(
+      make_vim({ filetype = "dot", bufnr = bufnr, opened_urls = opened, echo_calls = echoed }),
+      server,
+      session,
+      make_config(),
+      make_log()
+    )
+
+    cmd.preview()
+    session._active[bufnr] = true -- register() is stubbed away; mark active
+    local url = cmd.url()
+
+    assert.are.equal(1, #opened)
+    assert.are.equal(opened[1], url, ":GraphvizUrl must reprint exactly the opened URL")
+  end)
+
+  it("non-default config values land in the echoed URL (b01/enum parity)", function()
+    local echoed = {}
+    local bufnr = 7
+    local server = make_server({ state = { running = true, port = 4242, token = "tok-xyz" } })
+    local cmd = load_commands(
+      make_vim({ filetype = "dot", bufnr = bufnr, echo_calls = echoed }),
+      server,
+      make_session({ active = { [bufnr] = true } }),
+      make_config("dot", nil, nil, {
+        preserve_view = false,
+        highlight_mode = "upstream",
+        animate = false,
+        search = { scope = "nodes", case_sensitive = true, regex = true },
+        sync = { jump_on_click = false },
+      }),
+      make_log()
+    )
+
+    local url = cmd.url()
+
+    assert.are.equal(
+      "http://127.0.0.1:4242/?sessionId=7&token=tok-xyz"
+        .. "&preserve_view=0&highlight_mode=upstream&animate=0"
+        .. "&search_scope=nodes&search_case=1&search_regex=1"
+        .. "&sync_jump_on_click=0",
+      url
+    )
+    assert.are.equal(url, echoed[1].chunks[1][1])
+  end)
+
+  it("no active session: informative notify, no echo, returns nil", function()
+    local echoed = {}
+    local log = make_log()
+    local cmd = load_commands(
+      make_vim({ filetype = "dot", bufnr = 3, echo_calls = echoed }),
+      make_server({ state = { running = true, port = 9876, token = "tok-abc" } }),
+      make_session(), -- nothing active
+      make_config(),
+      log
+    )
+
+    assert.is_nil(cmd.url())
+    assert.are.equal(0, #echoed)
+    assert.are.equal(1, #log._notified)
+    assert.truthy(
+      log._notified[1]:find("no active preview", 1, true),
+      "the no-session guard fired, not another one"
+    )
+    assert.truthy(
+      log._notified[1]:find("GraphvizPreview", 1, true),
+      "notify points at :GraphvizPreview"
+    )
+  end)
+
+  it("session lingers but server exited: says the server is not running", function()
+    local echoed = {}
+    local log = make_log()
+    -- port/token deliberately still present: if the is_running guard were
+    -- removed, the pre-ready branch would NOT catch this and the test would
+    -- fail loudly instead of passing by accident.
+    local cmd = load_commands(
+      make_vim({ filetype = "dot", bufnr = 3, echo_calls = echoed }),
+      make_server({
+        state = { running = false, port = 9876, token = "tok-abc" },
+        is_running = false,
+      }),
+      make_session({ active = { [3] = true } }),
+      make_config(),
+      log
+    )
+
+    assert.is_nil(cmd.url())
+    assert.are.equal(0, #echoed)
+    assert.are.equal(1, #log._notified)
+    assert.truthy(
+      log._notified[1]:find("not running", 1, true),
+      "the dead-server guard fired, not the no-session one"
+    )
+  end)
+
+  it("server alive but pre-ready (no port/token yet): notify, no echo", function()
+    local echoed = {}
+    local log = make_log()
+    local cmd = load_commands(
+      make_vim({ filetype = "dot", bufnr = 3, echo_calls = echoed }),
+      make_server({ state = { running = false, port = nil, token = nil }, is_running = true }),
+      make_session({ active = { [3] = true } }),
+      make_config(),
+      log
+    )
+
+    assert.is_nil(cmd.url())
+    assert.are.equal(0, #echoed)
+    assert.are.equal(1, #log._notified)
+    assert.truthy(
+      log._notified[1]:find("still starting", 1, true),
+      "the pre-ready guard fired, not another one"
+    )
+  end)
+end)
 
 describe("commands.engine", function()
   after_each(function()

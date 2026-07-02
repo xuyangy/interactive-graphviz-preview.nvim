@@ -43,6 +43,46 @@ end
 -- Test seam: exercised directly by commands_spec without a real vim.
 M._tokenize_cmd = tokenize_cmd
 
+-- Build the full preview URL for a buffer from the live server state and the
+-- current config. Returns nil when the server has not announced port/token yet.
+-- The interactivity config rides along as query params (always all of them,
+-- even at defaults — deterministic URLs, no absent-vs-default ambiguity).
+-- config validation guarantees every key exists with an enum/boolean value, so
+-- the values are URL-safe as-is; booleans travel as 1/0. The frontend parses
+-- these at startup and feeds its clamping setters — config applies when a
+-- preview opens (re-open to change).
+local function preview_url(bufnr)
+  local server = require("interactive-graphviz.server")
+  local config = require("interactive-graphviz.config")
+
+  local port = server.state.port
+  local token = server.state.token
+  if not port or not token then
+    return nil
+  end
+
+  local cfg = config.get()
+  local function b01(v)
+    return v and "1" or "0"
+  end
+  return string.format(
+    "http://127.0.0.1:%d/?sessionId=%d&token=%s"
+      .. "&preserve_view=%s&highlight_mode=%s&animate=%s"
+      .. "&search_scope=%s&search_case=%s&search_regex=%s"
+      .. "&sync_jump_on_click=%s",
+    port,
+    bufnr,
+    token,
+    b01(cfg.preserve_view),
+    cfg.highlight_mode,
+    b01(cfg.animate),
+    cfg.search.scope,
+    b01(cfg.search.case_sensitive),
+    b01(cfg.search.regex),
+    b01(cfg.sync.jump_on_click)
+  )
+end
+
 -- Returns true if the given buffer contains DOT/Graphviz content.
 local function is_dot_buffer(bufnr)
   -- Guard against invalid buffers (e.g. after BufDelete, re-open scenarios).
@@ -132,40 +172,13 @@ function M.preview()
     if not vim.api.nvim_buf_is_valid(bufnr) then
       return
     end
-    local port = server.state.port
-    local token = server.state.token
-    if not port or not token then
+    local url = preview_url(bufnr)
+    if not url then
       log.notify("GraphvizPreview: server ready but port/token missing", vim.log.levels.ERROR)
       return
     end
-    -- Append the interactivity config as query params (always all of them, even
-    -- at defaults — deterministic URLs, no absent-vs-default ambiguity). config
-    -- validation guarantees every key exists with an enum/boolean value, so the
-    -- values are URL-safe as-is; booleans travel as 1/0. The frontend parses
-    -- these at startup and feeds its clamping setters — config applies when a
-    -- preview opens (re-open to change).
-    local cfg = config.get()
-    local function b01(v)
-      return v and "1" or "0"
-    end
-    local url = string.format(
-      "http://127.0.0.1:%d/?sessionId=%d&token=%s"
-        .. "&preserve_view=%s&highlight_mode=%s&animate=%s"
-        .. "&search_scope=%s&search_case=%s&search_regex=%s"
-        .. "&sync_jump_on_click=%s",
-      port,
-      bufnr,
-      token,
-      b01(cfg.preserve_view),
-      cfg.highlight_mode,
-      b01(cfg.animate),
-      cfg.search.scope,
-      b01(cfg.search.case_sensitive),
-      b01(cfg.search.regex),
-      b01(cfg.sync.jump_on_click)
-    )
     log.notify("GraphvizPreview: serving at " .. url, vim.log.levels.INFO)
-    local open_cmd = cfg.open_cmd
+    local open_cmd = config.get().open_cmd
     if open_cmd then
       local parts = tokenize_cmd(open_cmd)
       table.insert(parts, url)
@@ -217,6 +230,59 @@ function M.toggle()
   else
     M.preview()
   end
+end
+
+-- :GraphvizUrl — print the current buffer's full preview URL.
+--
+-- Deliberately NOT log.notify: vim.notify is user-replaceable (noice.nvim,
+-- nvim-notify, …) and those UIs truncate long lines and expire — once the
+-- startup "serving at …" toast is gone, there is no way to get the URL back.
+-- nvim_echo with history=true puts the COMPLETE untruncated URL into
+-- `:messages`, retrievable and copyable at any time, regardless of which
+-- notification UI is installed. Port/token are stable for the server's
+-- lifetime, and the config params reflect the current setup() — i.e. exactly
+-- the URL a fresh `:GraphvizPreview` tab would open.
+--
+-- Note the URL embeds the session auth token, so echoing it into `:messages`
+-- widens its exposure from an ephemeral toast to durable message history.
+-- Acceptable: the token is loopback-scoped, dies with the server, and the user
+-- is explicitly asking for the URL — but keep this in mind if message history
+-- is ever logged/shipped anywhere.
+function M.url()
+  local server = require("interactive-graphviz.server")
+  local session = require("interactive-graphviz.session")
+  local log = require("interactive-graphviz.log")
+
+  local bufnr = vim.api.nvim_get_current_buf()
+  if not session.has(bufnr) then
+    log.notify(
+      "GraphvizUrl: no active preview for this buffer — run :GraphvizPreview first",
+      vim.log.levels.INFO
+    )
+    return nil
+  end
+  -- A session can outlive a crashed server (see the preview() idempotency
+  -- note); tell that user the truth instead of "no active preview".
+  if not server.is_running() then
+    log.notify(
+      "GraphvizUrl: the preview server is not running (it may have exited)"
+        .. " — run :GraphvizPreview to restart",
+      vim.log.levels.INFO
+    )
+    return nil
+  end
+
+  local url = preview_url(bufnr)
+  if not url then
+    log.notify(
+      "GraphvizUrl: the server is still starting — try again in a moment",
+      vim.log.levels.INFO
+    )
+    return nil
+  end
+
+  vim.api.nvim_echo({ { url } }, true, {})
+  return url
 end
 
 function M.engine(opts)

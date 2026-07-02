@@ -8,6 +8,14 @@
 > **Triage (correct-course 2026-06-11):** `→ Story 6.1` / `→ Story 6.4` = pulled into Epic 6
 > (v3 bidirectional sync). See `../planning-artifacts/sprint-change-proposal-2026-06-11.md`.
 
+## Deferred from: adversarial review of spec-graphviz-url-command (2026-07-02)
+
+- The vimdoc (`doc/interactive-graphviz.txt`) has no COMMANDS section at all — it covers
+  configuration only and points at the README for commands, so no command (including the new
+  `:GraphvizUrl`) is discoverable via `:help interactive-graphviz`. Pre-existing structural gap,
+  extended-not-created by this change. Add a COMMANDS section mirroring the README table (natural
+  home: Story 6.4's docs pass). [doc/interactive-graphviz.txt]
+
 ## Deferred from: code review of 6-1-activate-the-return-channel-protocol-spine (2026-06-23)
 
 - Valid non-object WebSocket JSON can still throw outside malformed-frame handling: `JSON.parse("null")` succeeds, then `msg.type` dereferences `null` in `handleWsMessage`. The malformed-frame guard only catches parse failures, so object-shape validation should be added to the WebSocket parser in a later hardening pass. [server/server.ts:119]

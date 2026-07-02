@@ -19,6 +19,10 @@ vim.api.nvim_create_user_command("GraphvizPreviewToggle", function(opts)
   dispatch("toggle", opts)
 end, {})
 
+vim.api.nvim_create_user_command("GraphvizUrl", function(opts)
+  dispatch("url", opts)
+end, {})
+
 vim.api.nvim_create_user_command("GraphvizEngine", function(opts)
   dispatch("engine", opts)
 end, {

@@ -68,6 +68,7 @@ Open a DOT/GV file (`filetype=dot`) and run:
 | `:GraphvizPreviewStop` | Stop the current buffer's preview. Idempotent; shuts the server down when it was the last session. |
 | `:GraphvizPreviewToggle` | Start if stopped, stop if running. |
 | `:GraphvizEngine [engine]` | With no argument, report the current and available engines. With an argument (e.g. `:GraphvizEngine neato`), switch the layout engine and re-render. |
+| `:GraphvizUrl` | Print the current buffer's full preview URL into `:messages` history. Useful when the startup notification was truncated or swallowed by a notification UI (noice.nvim, nvim-notify, …) — the echoed URL stays retrievable via `:messages`. Requires an active preview. Note the URL contains the session's auth token (loopback-scoped, dies with the server). |
 
 Edits to the buffer re-render automatically (debounced, latest-wins). On a bad
 graph the last good render is kept and an error is shown rather than blanking
