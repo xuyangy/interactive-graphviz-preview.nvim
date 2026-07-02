@@ -4,7 +4,7 @@ baseline_commit: ed658a21fdd0f7b2ab2ae4b3ddd36b2cf7e77c41
 
 # Story 6.2: Click node -> jump to source line
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -122,6 +122,30 @@ _From `epics.md` Story 6.2 [Source: _bmad-output/planning-artifacts/epics.md:590
     `stylua --check .`. If a local harness is missing, record the exact command and failure.
   - [x] Grep-verify no `node_click` sender includes `v` and that `emphasize` behavior from 6.1 is
     untouched.
+
+### Review Findings
+
+- [x] [Review][Patch] Matcher false-matches inside comments and HTML strings — a node id in a
+  `//`, `#`, or `/* */` comment or an HTML label `<...>` before the real definition wins the scan
+  and jumps to the wrong line [lua/interactive-graphviz/sync.lua:21] (blind+edge, MED)
+- [x] [Review][Patch] Bare-ID boundary uses `[%w_]`, which excludes DOT-legal high bytes
+  (128–255) — clicking `a` false-matches the prefix of a Unicode id like `añejo` defined earlier
+  [lua/interactive-graphviz/sync.lua:59] (edge, MED)
+- [x] [Review][Patch] Bare scanning runs even for ids that can never appear bare — a
+  whitespace-only id (`" "`) matches arbitrary indentation; restrict bare matching to
+  bare-eligible ids (identifier/numeral forms) [lua/interactive-graphviz/sync.lua] (edge, LOW)
+- [x] [Review][Patch] `sendNodeClick` hardening: unguarded `socket.send` can throw from the click
+  handler on a CLOSING socket; `Number(sessionId)` accepts `"1e3"`/`"0x10"`/whitespace; `nodeId`
+  unvalidated at the public method [frontend/ws.ts] (blind, MED+LOW)
+- [x] [Review][Patch] `handle_node_click` uses `win_findbuf()[1]` unconditionally — the cursor can
+  move in a window on ANOTHER tabpage with no feedback; prefer the current tabpage and notify on
+  the cross-tab fallback [lua/interactive-graphviz/sync.lua] (blind, MED)
+- [x] [Review][Defer] Concatenated (`"a" + "b"`) and line-continued quoted IDs never match — the
+  per-line single-string scanner reports "not found" (graceful) [lua/interactive-graphviz/sync.lua]
+  — deferred, rare DOT syntax, degradation is the designed notify path
+- [x] [Review][Defer] A node named like an attribute key/keyword (e.g. `color` in `x [color=red]`)
+  false-matches at the attribute position — full fix needs context-aware statement parsing
+  [lua/interactive-graphviz/sync.lua] — deferred, pathological naming; revisit if hit in practice
 
 ## Dev Notes
 
@@ -288,3 +312,11 @@ Ultimate context engine analysis completed - comprehensive developer guide creat
   click-highlight behavior unchanged; Story 6.1 relay/security posture
   untouched. All suites green (frontend 139, server 71, busted 147, stylua,
   nvim smoke, bundle smoke). Status → review.
+- 2026-07-02: Code review (3 layers: Blind Hunter, Edge Case Hunter, Acceptance
+  Auditor) — all 5 ACs judged satisfied; 5 patch findings applied (matcher now
+  skips //, line-leading #, /* */ and HTML <...> incl. multi-line; high bytes
+  128–255 treated as DOT ID bytes; bare scan restricted to bare-eligible ids;
+  sendNodeClick strict-digit sessionId + nodeId guard + try/catch around send;
+  cursor jump prefers current-tabpage window with a notify on cross-tab
+  fallback), 2 deferred to deferred-work.md, 6 dismissed. Suites after fixes:
+  frontend 142, busted 163, server 71, stylua, nvim smoke. Status → done.

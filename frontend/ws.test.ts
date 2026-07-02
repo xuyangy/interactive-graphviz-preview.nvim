@@ -12,6 +12,7 @@ class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
   url: string;
   sent: string[] = [];
+  throwOnSend = false;
   private listeners: Record<string, Listener[]> = {};
 
   constructor(url: string) {
@@ -24,6 +25,7 @@ class FakeWebSocket {
   }
 
   send(data: string): void {
+    if (this.throwOnSend) throw new Error("InvalidStateError: still in CLOSING state");
     this.sent.push(String(data));
   }
 
@@ -105,9 +107,38 @@ describe("sendNodeClick (Story 6.2)", () => {
     socket.dispatch("open", {});
 
     expect(client.sendNodeClick("a")).toBe(false);
-    // hello is also skipped-or-sent per existing behavior; assert no node_click
-    // frame regardless of hello handling.
-    expect(socket.sent.filter((f: string) => f.includes("node_click"))).toEqual([]);
+    // Exactly the hello handshake went out — no node_click frame at all.
+    expect(socket.sent).toHaveLength(1);
+    expect((JSON.parse(socket.sent[0]!) as { type: string }).type).toBe("hello");
+  });
+
+  test("sessionId must be strict decimal digits: '1e3', '0x10', ' 3' all refuse", async () => {
+    for (const bad of ["1e3", "0x10", "%203"]) {
+      // %203 decodes to " 3" (leading whitespace) via URLSearchParams.
+      setUrl(`?sessionId=${bad}&token=tok-abc`);
+      const { client, socket } = await makeClient();
+      socket.dispatch("open", {});
+
+      expect(client.sendNodeClick("a")).toBe(false);
+      expect(socket.sent.filter((f: string) => f.includes("node_click"))).toEqual([]);
+    }
+  });
+
+  test("empty nodeId: returns false, nothing sent (defense-in-depth below the gate)", async () => {
+    const { client, socket } = await makeClient();
+    socket.dispatch("open", {});
+
+    expect(client.sendNodeClick("")).toBe(false);
+    expect(socket.sent).toHaveLength(1); // hello only
+  });
+
+  test("a throwing socket.send (CLOSING race) is contained: returns false, no throw", async () => {
+    const { client, socket } = await makeClient();
+    socket.dispatch("open", {});
+    socket.throwOnSend = true;
+
+    expect(() => client.sendNodeClick("a")).not.toThrow();
+    expect(client.sendNodeClick("a")).toBe(false);
   });
 
   test("missing sessionId: returns false", async () => {

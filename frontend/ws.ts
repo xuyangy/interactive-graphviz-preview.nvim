@@ -55,9 +55,11 @@ export function createWebSocketClient(handlers: WebSocketClientHandlers = {}): W
 
   client.sendNodeClick = (nodeId: string): boolean => {
     if (!client.connected) return false;
-    if (sessionId === null || sessionId.trim() === "") return false;
+    if (typeof nodeId !== "string" || nodeId.length === 0) return false;
+    // Strict decimal digits only: Number() would also accept "1e3"/"0x10"/
+    // whitespace, silently widening the tamper surface (review finding).
+    if (sessionId === null || !/^\d+$/.test(sessionId)) return false;
     const numericSessionId = Number(sessionId);
-    if (!Number.isInteger(numericSessionId)) return false;
     // Exact three-key envelope — the server drops node_click frames with any
     // other shape (hasExactlyKeys), so adding a key here is a silent outage.
     const msg: ProtocolMessage = {
@@ -65,7 +67,13 @@ export function createWebSocketClient(handlers: WebSocketClientHandlers = {}): W
       sessionId: numericSessionId,
       nodeId,
     };
-    socket.send(JSON.stringify(msg));
+    try {
+      socket.send(JSON.stringify(msg));
+    } catch {
+      // A CLOSING socket still reports connected until the close event lands;
+      // a click must never throw out of the DOM handler over a lost frame.
+      return false;
+    }
     return true;
   };
 

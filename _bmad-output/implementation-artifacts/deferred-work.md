@@ -8,6 +8,17 @@
 > **Triage (correct-course 2026-06-11):** `→ Story 6.1` / `→ Story 6.4` = pulled into Epic 6
 > (v3 bidirectional sync). See `../planning-artifacts/sprint-change-proposal-2026-06-11.md`.
 
+## Deferred from: code review of 6-2-click-node-jump-to-source-line (2026-07-02)
+
+- Concatenated quoted IDs (`"a" + "b"` = node `ab`) and backslash-line-continued strings are never
+  matched by the per-line, single-string node→line scanner; a click on such a node degrades to the
+  "not found" notify (graceful, by design). Would require a token-level DOT scanner to fix.
+  [lua/interactive-graphviz/sync.lua]
+- A node named identically to an attribute key or keyword (e.g. a node literally named `color`
+  while `x [color=red]` appears earlier) false-matches at the attribute position — the bare scan
+  is boundary-aware but not statement-context-aware. Pathological naming; full fix needs
+  context-aware parsing. Revisit if reported in practice. [lua/interactive-graphviz/sync.lua]
+
 ## Deferred from: adversarial review of spec-graphviz-url-command (2026-07-02)
 
 - The vimdoc (`doc/interactive-graphviz.txt`) has no COMMANDS section at all — it covers

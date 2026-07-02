@@ -14,6 +14,8 @@ local state = {
   valid_bufs = {}, -- bufnr → true
   buf_lines = {}, -- bufnr → lines
   windows = {}, -- bufnr → { winid, ... }
+  win_tabs = {}, -- winid → tabpage handle (default 1)
+  current_tab = 1,
   set_cursor_error = false, -- force nvim_win_set_cursor to throw
 }
 
@@ -25,6 +27,12 @@ _G.vim = {
     end,
     nvim_buf_get_lines = function(bufnr, _, _, _)
       return state.buf_lines[bufnr] or {}
+    end,
+    nvim_get_current_tabpage = function()
+      return state.current_tab
+    end,
+    nvim_win_get_tabpage = function(winid)
+      return state.win_tabs[winid] or 1
     end,
     nvim_win_set_cursor = function(winid, pos)
       if state.set_cursor_error then
@@ -60,6 +68,8 @@ local function reset()
   state.valid_bufs = {}
   state.buf_lines = {}
   state.windows = {}
+  state.win_tabs = {}
+  state.current_tab = 1
   state.set_cursor_error = false
   log_stub.notify = function(msg, level)
     table.insert(notify_calls, { msg = msg, level = level })
@@ -147,6 +157,55 @@ describe("sync.find_node_line — quoted IDs", function()
   end)
 end)
 
+describe("sync.find_node_line — DOT syntax awareness (review fixes)", function()
+  it("a `//` comment never matches — the real definition wins", function()
+    assert.are.equal(2, (sync.find_node_line({ "// define node a here", "a -> b;" }, "a")))
+    assert.are.equal(2, (sync.find_node_line({ "b -> c; // mentions a", "a -> b;" }, "a")))
+  end)
+
+  it("a line-leading `#` (preprocessor) line never matches", function()
+    assert.are.equal(2, (sync.find_node_line({ "  # a is important", "a -> b;" }, "a")))
+  end)
+
+  it("a mid-line `#` is NOT a comment per the DOT grammar", function()
+    -- Only lines BEGINNING with # are preprocessor output; pin that boundary.
+    assert.are.equal(1, (sync.find_node_line({ "b -> c; # a", "a -> x;" }, "a")))
+  end)
+
+  it("`/* */` block comments never match — same line and spanning lines", function()
+    assert.are.equal(2, (sync.find_node_line({ "/* a */ b -> c;", "a -> b;" }, "a")))
+    assert.are.equal(
+      3,
+      (sync.find_node_line({ "/* node a lives", "   here: a */", "a -> b;" }, "a"))
+    )
+  end)
+
+  it("HTML strings `<...>` never match — inline and spanning lines", function()
+    assert.are.equal(2, (sync.find_node_line({ "x [label=<a>];", "a -> b;" }, "a")))
+    assert.are.equal(
+      4,
+      (sync.find_node_line({ "x [label=<", "  <b>a</b>", ">];", "a -> b;" }, "a"))
+    )
+  end)
+
+  it("high bytes are ID bytes: `a` does not match the prefix of `añejo`", function()
+    assert.are.equal(2, (sync.find_node_line({ "  añejo -> x;", "  a -> b;" }, "a")))
+    -- and the unicode id itself is matchable bare
+    assert.are.equal(1, (sync.find_node_line({ "  añejo -> x;" }, "añejo")))
+  end)
+
+  it("a bare-ineligible id (whitespace) only matches its quoted form", function()
+    local lnum, col = sync.find_node_line({ "  indented -> x;", '" " -> z;' }, " ")
+    assert.are.equal(2, lnum)
+    assert.are.equal(1, col)
+  end)
+
+  it("numeral ids stay bare-matchable", function()
+    assert.are.equal(1, (sync.find_node_line({ "5 -> 3;" }, "5")))
+    assert.are.equal(1, (sync.find_node_line({ "x -> 3.14;" }, "3.14")))
+  end)
+end)
+
 describe("sync.find_node_line — degraded inputs", function()
   it("returns nil when the node is absent (stale-browser path)", function()
     assert.is_nil(sync.find_node_line({ "a -> b;" }, "ghost"))
@@ -227,5 +286,31 @@ describe("sync.handle_node_click", function()
 
     assert.is_false(sync.handle_node_click(3, "a"))
     assert.are.equal(1, #notify_calls)
+  end)
+
+  it("prefers a window on the CURRENT tabpage over an earlier other-tab window", function()
+    state.valid_bufs[3] = true
+    state.buf_lines[3] = { "a -> b;" }
+    state.windows[3] = { 2001, 1001 } -- other-tab window listed first
+    state.win_tabs[2001] = 2
+    state.win_tabs[1001] = 1
+    state.current_tab = 1
+
+    assert.is_true(sync.handle_node_click(3, "a"))
+    assert.are.equal(1001, cursor_calls[1].winid)
+    assert.are.equal(0, #notify_calls)
+  end)
+
+  it("cross-tab fallback still jumps but says so (no silent no-op)", function()
+    state.valid_bufs[3] = true
+    state.buf_lines[3] = { "a -> b;" }
+    state.windows[3] = { 2001 } -- only displayed on another tab
+    state.win_tabs[2001] = 2
+    state.current_tab = 1
+
+    assert.is_true(sync.handle_node_click(3, "a"))
+    assert.are.equal(2001, cursor_calls[1].winid)
+    assert.are.equal(1, #notify_calls)
+    assert.truthy(notify_calls[1].msg:find("another tab", 1, true))
   end)
 end)

@@ -72,6 +72,6 @@ development_status:
   # --- v3 (added by correct-course 2026-06-11; see sprint-change-proposal-2026-06-11.md) ---
   epic-6: in-progress
   6-1-activate-the-return-channel-protocol-spine: done
-  6-2-click-node-jump-to-source-line: review
+  6-2-click-node-jump-to-source-line: done
   6-3-cursor-graph-emphasis: backlog
   6-4-sync-config-hardening-and-docs: backlog
