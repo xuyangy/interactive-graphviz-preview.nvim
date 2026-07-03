@@ -8,11 +8,11 @@ inputDocuments:
   - _bmad-output/planning-artifacts/architecture.md
 ---
 
-# interactive-graphviz.nvim - Epic Breakdown
+# interactive-graphviz-preview.nvim - Epic Breakdown
 
 ## Overview
 
-This document provides the complete epic and story breakdown for interactive-graphviz.nvim,
+This document provides the complete epic and story breakdown for interactive-graphviz-preview.nvim,
 decomposing the requirements from the PRD and Architecture into implementable stories.
 There is no UX Design document; the minimal browser-side UI is specified in the
 Architecture's render-pipeline section.

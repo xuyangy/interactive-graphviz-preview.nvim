@@ -8,7 +8,7 @@ inputDocuments:
   - _bmad-output/planning-artifacts/prds/prd-interactive-graphviz.nvim-2026-06-02/addendum.md
   - _bmad-output/planning-artifacts/briefs/brief-interactive-graphviz.nvim-2026-06-02/brief.md
 workflowType: 'architecture'
-project_name: 'interactive-graphviz.nvim'
+project_name: 'interactive-graphviz-preview.nvim'
 user_name: 'Xuyangy'
 date: '2026-06-02'
 ---
@@ -498,7 +498,7 @@ by all three tiers.
 ### Structure Patterns
 
 ```
-interactive-graphviz.nvim/
+interactive-graphviz-preview.nvim/
 ├── plugin/interactive-graphviz.lua        # lazy command/keymap defs only
 ├── lua/interactive-graphviz/              # plugin modules (require-on-demand)
 │   ├── init.lua                           # setup(), public API
@@ -612,7 +612,7 @@ graph.render(dot);              // ❌ applied without checking msg.v (stale-ren
 ### Complete Project Directory Structure
 
 ```
-interactive-graphviz.nvim/
+interactive-graphviz-preview.nvim/
 ├── README.md                          # sets expectations: v1 = live preview;
 │                                       #   "interactive" roadmap; companions
 │                                       #   (Tree-sitter dot, dot-language-server);

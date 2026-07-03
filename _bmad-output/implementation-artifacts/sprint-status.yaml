@@ -1,6 +1,6 @@
 # generated: 2026-06-02T19:07:07+0200
 # last_updated: 2026-06-04T23:49:41+0200
-# project: interactive-graphviz.nvim
+# project: interactive-graphviz-preview.nvim
 # project_key: NOKEY
 # tracking_system: file-system
 # story_location: /Users/xuyangy/trash/git/interactive-graphviz.nvim/_bmad-output/implementation-artifacts
@@ -36,7 +36,7 @@
 
 generated: 2026-06-02T19:07:07+0200
 last_updated: 2026-07-03T15:30:00+0200
-project: interactive-graphviz.nvim
+project: interactive-graphviz-preview.nvim
 project_key: NOKEY
 tracking_system: file-system
 story_location: /Users/xuyangy/trash/git/interactive-graphviz.nvim/_bmad-output/implementation-artifacts

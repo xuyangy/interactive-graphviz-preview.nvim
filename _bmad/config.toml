@@ -11,7 +11,7 @@
 # ─────────────────────────────────────────────────────────────────
 
 [core]
-project_name = "interactive-graphviz.nvim"
+project_name = "interactive-graphviz-preview.nvim"
 document_output_language = "English"
 output_folder = "{project-root}/_bmad-output"
 
