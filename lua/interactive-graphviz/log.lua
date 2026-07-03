@@ -14,7 +14,7 @@ local function threshold()
 end
 
 function M.notify(message, level)
-  vim.notify(message, level or vim.log.levels.INFO, { title = "interactive-graphviz.nvim" })
+  vim.notify(message, level or vim.log.levels.INFO, { title = "interactive-graphviz-preview.nvim" })
 end
 
 local function gated(message, configured_level, vim_level)

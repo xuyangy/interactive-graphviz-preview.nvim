@@ -129,7 +129,7 @@ local function check_port_bind()
 end
 
 function M.check()
-  start("interactive-graphviz.nvim")
+  start("interactive-graphviz-preview.nvim")
 
   local loaded, install = pcall(require, "interactive-graphviz.install")
   if not loaded then

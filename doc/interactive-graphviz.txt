@@ -1,7 +1,7 @@
-*interactive-graphviz.nvim.txt*  Live Graphviz preview for Neovim
+*interactive-graphviz-preview.nvim.txt*  Live Graphviz preview for Neovim
 
 ==============================================================================
-CONTENTS                                      *interactive-graphviz.nvim*
+CONTENTS                                      *interactive-graphviz-preview.nvim*
 
 1. Configuration ........................ |interactive-graphviz-config|
 2. Interactivity keys ................... |interactive-graphviz-interactivity|

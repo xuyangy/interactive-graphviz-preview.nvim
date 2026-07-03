@@ -100,7 +100,7 @@ describe("health :checkhealth diagnostics", function()
     local health, reports = load_health()
     health.check()
 
-    assert.are.equal("interactive-graphviz.nvim", reports.start[1])
+    assert.are.equal("interactive-graphviz-preview.nvim", reports.start[1])
     assert.is_true(any(reports.ok, "0.10")) -- neovim version
     assert.is_true(any(reports.ok, "checksum matches"))
     assert.is_true(any(reports.ok, "source-build capable"))

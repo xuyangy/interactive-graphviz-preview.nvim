@@ -1,4 +1,4 @@
-# interactive-graphviz.nvim
+# interactive-graphviz-preview.nvim
 
 Live Graphviz/DOT preview for Neovim — edit a `.dot`/`.gv` buffer and see it
 render in your browser, updating as you type. Rendering happens in the browser
@@ -39,7 +39,7 @@ No system Graphviz, Node, or yarn are required at runtime on supported platforms
 
 ```lua
 {
-  "xuyangy/interactive-graphviz.nvim",
+  "xuyangy/interactive-graphviz-preview.nvim",
   ft = { "dot" },
   opts = {}, -- calls require("interactive-graphviz").setup{}; zero-config works
 }
@@ -49,7 +49,7 @@ No system Graphviz, Node, or yarn are required at runtime on supported platforms
 
 ```lua
 use({
-  "xuyangy/interactive-graphviz.nvim",
+  "xuyangy/interactive-graphviz-preview.nvim",
   config = function()
     require("interactive-graphviz").setup({})
   end,
