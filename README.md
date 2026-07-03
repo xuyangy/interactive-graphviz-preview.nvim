@@ -14,6 +14,10 @@ runtime** on supported platforms.
 - Command-started preview with a clean lifecycle (start / stop / toggle).
 - Live reload on buffer change (debounced ~200 ms, latest-wins).
 - Last good render is preserved and a visible error is shown on a bad graph.
+- Interactive preview: zoom/pan with view preservation across reloads,
+  click-to-highlight neighbors, live search (`/`), animated transitions.
+- Editor↔graph sync, both directions: click a node to jump to its source
+  line; the node under your cursor is outlined in the preview.
 - `dot` and `neato` layout engines, switchable at runtime.
 - Zero-prerequisite install on supported platforms: a verified prebuilt binary
   is fetched automatically; uncovered platforms fall back to a source build.
@@ -261,10 +265,11 @@ the fallback), and localhost port-bind capability.
   the in-source, tag-pinned `checksums.txt` (not a mutable remote manifest)
   before execution.
 
-## Non-goals (v1)
+## Non-goals
 
 Auto-open on filetype, image/SVG export, layout engines beyond `dot`/`neato`,
-and richer in-browser interactivity are intentionally out of scope for v1.
+editing the buffer from the preview, and raising/focusing windows across the
+editor↔browser boundary are intentionally out of scope.
 
 ## License
 
