@@ -8,6 +8,7 @@ import {
   installResetKeybinding,
   installInteractionHandlers,
   installSearchHandlers,
+  installViewToolbar,
   applyCursorEmphasis,
 } from "./render";
 import { isBlankDot } from "./dot";
@@ -48,6 +49,12 @@ installInteractionHandlers();
 // the d3 import stays there. Search defaults are frontend-local and any setup()
 // override arrives via the applyUrlConfig call above (still zero wire surface).
 installSearchHandlers();
+
+// View toolbar — clickable home / zoom-in / zoom-out at the top-right for
+// users who prefer buttons over gestures. Each button wraps the same code path
+// as its gesture twin (`0`/`r` reset, scroll/double-click zoom); the handlers
+// live in render.ts so the d3 import stays there.
+installViewToolbar();
 
 // Debug stash: all inbound envelopes are kept here for inspection.
 // Intentional — reviewed and dismissed in Story 1.3 code review.

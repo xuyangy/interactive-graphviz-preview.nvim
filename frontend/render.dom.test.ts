@@ -15,16 +15,19 @@ import {
   _searchIsOpen,
   _selectionSnapshot,
   _setLastGoodDot,
+  _viewToolbarElement,
   applyCursorEmphasis,
   clearError,
   closeSearch,
   handleHighlightKeydown,
   handleSearchKeydown,
   installInteractionHandlers,
+  installViewToolbar,
   nodeTitleFromClickTarget,
   openSearch,
   showEmptyNotice,
   showError,
+  zoomBy,
 } from "./render";
 import { _resetSync, setJumpOnClick, setNodeClickSender } from "./sync";
 
@@ -484,5 +487,73 @@ describe("cursor-echo emphasis (Story 6.3)", () => {
     expect(css).not.toMatch(/ig-cursor[^{}]*\{[^}]*[^-]opacity\s*:/);
     // The precedence law is encoded in the selector: cursor yields to click/search.
     expect(css).toContain(".ig-cursor:not(.ig-selected):not(.ig-neighbor)");
+  });
+});
+
+describe("view toolbar (home / zoom-in / zoom-out)", () => {
+  // No fixture render is needed: the toolbar attaches to <body> outside #app,
+  // and the button code paths are guarded no-ops before the first real render
+  // (no zoom behavior exists under happy-dom — exactly the pre-render state).
+
+  test("install creates the toolbar with exactly 3 buttons, each with an icon and a tooltip", () => {
+    installViewToolbar();
+    const bar = _viewToolbarElement();
+    expect(bar).not.toBeNull();
+    const buttons = bar!.querySelectorAll("button");
+    expect(buttons.length).toBe(3);
+    for (const btn of buttons) {
+      expect((btn.getAttribute("title") ?? "").length).toBeGreaterThan(0);
+      // Each button carries an inline SVG icon that inherits the button color
+      // (currentColor) — a hardcoded fill would vanish on the dark background.
+      const svg = btn.querySelector("svg");
+      expect(svg).not.toBeNull();
+      expect(svg!.outerHTML).toContain("currentColor");
+      expect(svg!.outerHTML).not.toContain("#231815");
+    }
+    // The tooltips name the gesture twins (the discoverability contract).
+    const titles = [...buttons].map((b) => b.getAttribute("title") ?? "");
+    expect(titles[0]).toContain("0 or r");
+    expect(titles[1]).toContain("Zoom in");
+    expect(titles[2]).toContain("Zoom out");
+  });
+
+  test("double install is idempotent — still one toolbar, 3 buttons", () => {
+    installViewToolbar();
+    installViewToolbar();
+    expect(document.querySelectorAll("#ig-view-toolbar").length).toBe(1);
+    expect(_viewToolbarElement()!.querySelectorAll("button").length).toBe(3);
+  });
+
+  test("clicking every button before any render is a silent no-op (no throw)", () => {
+    installViewToolbar();
+    for (const btn of _viewToolbarElement()!.querySelectorAll("button")) {
+      expect(() => clickOn(btn)).not.toThrow();
+    }
+  });
+
+  test("zoomBy without a live zoom behavior does not throw", () => {
+    expect(() => zoomBy(1.4)).not.toThrow();
+    expect(() => zoomBy(1 / 1.4)).not.toThrow();
+  });
+
+  test("the error overlay clears the toolbar column (right offset > toolbar width)", () => {
+    installViewToolbar();
+    showError(new Error("boom"), 1);
+    const overlay = _overlayElement()!;
+    // Toolbar column ends 36px from the right edge (8px offset + 28px button);
+    // 44px (VIEW_TOOLBAR_CLEARANCE_PX) leaves an 8px gutter.
+    expect(overlay.style.right).toBe("44px");
+    expect(_viewToolbarElement()!.style.right).toBe("8px");
+  });
+
+  test("toolbar is an accessible toolbar: role + aria-labels alongside tooltips", () => {
+    installViewToolbar();
+    const bar = _viewToolbarElement()!;
+    expect(bar.getAttribute("role")).toBe("toolbar");
+    expect((bar.getAttribute("aria-label") ?? "").length).toBeGreaterThan(0);
+    for (const btn of bar.querySelectorAll("button")) {
+      // aria-label mirrors title — the SVG icons are aria-hidden.
+      expect(btn.getAttribute("aria-label")).toBe(btn.getAttribute("title"));
+    }
   });
 });

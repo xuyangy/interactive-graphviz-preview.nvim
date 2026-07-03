@@ -229,8 +229,10 @@ export function showError(err: unknown, v: number): void {
   if (!overlay) {
     overlay = document.createElement("div");
     overlay.id = "ig-error-overlay";
+    // Offset right by the toolbar clearance (not 8px) so the overlay never
+    // covers the view toolbar's buttons (installViewToolbar).
     overlay.style.cssText =
-      "position:fixed;top:8px;right:8px;background:rgba(30,0,0,0.85);" +
+      `position:fixed;top:8px;right:${VIEW_TOOLBAR_CLEARANCE_PX}px;background:rgba(30,0,0,0.85);` +
       "color:#ff8080;padding:6px 10px;border-radius:4px;font-size:13px;" +
       "font-family:monospace;z-index:9999;pointer-events:none;max-width:50vw;word-break:break-all;";
     document.body.appendChild(overlay);
@@ -339,6 +341,123 @@ export function installResetKeybinding(): void {
   if (_resetKeyInstalled) return;
   _resetKeyInstalled = true;
   document.addEventListener("keydown", handleResetKeydown);
+}
+
+// ── View toolbar (clickable home / zoom-in / zoom-out) ────────────────────────
+// Visible affordances for users who prefer clicking over gestures. Each button
+// wraps the SAME code path its gesture twin uses: home → resetZoomToFit() (the
+// `0`/`r` handler), zoom in/out → the live d3-zoom behavior's public scaleBy —
+// the mechanism behind d3-zoom's own scroll/double-click gestures. No parallel
+// zoom implementation.
+
+const VIEW_TOOLBAR_ID = "ig-view-toolbar";
+
+// Per-click zoom step. Gentler than d3-zoom's double-click ×2 so repeated
+// clicks give fine-grained control; in and out are multiplicative inverses
+// (float drift ~1e-16 per in/out pair — far below anything visible).
+const ZOOM_BUTTON_FACTOR = 1.4;
+
+// How far overlays must stay from the right viewport edge to clear the
+// toolbar column: 8px offset + 28px button width + 8px gutter. showError and
+// the search-box max-width derive from this — keep the three in sync.
+const VIEW_TOOLBAR_CLEARANCE_PX = 44;
+
+// Button icons — adapted from plantuml-previewer.vim's viewer icons (the
+// reference UX). Flattened for inlining: the originals carry per-file
+// <style> classes (.cls-1/.cls-2) that would collide as globals when all
+// three sit on one page, and a hardcoded near-black fill; here shapes use
+// attributes directly and `currentColor` so the button color applies. The
+// viewBox is cropped from the original A4 canvas to the icon's region.
+const ICON_HOME =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 40 595.28 640" width="16" height="16" aria-hidden="true">' +
+  '<path fill="currentColor" d="M477.38,403.76L328.27,245a44,44,0,0,0-64-.22l-151.36,159a41,41,0,0,0-10.75,27.67V605.09a41,41,0,0,0,41,41H214a24.4,24.4,0,0,0,24.4-24.4V542h113.4v79.68a24.4,24.4,0,0,0,24.4,24.4h70.9a41,41,0,0,0,41-41V431.44A41,41,0,0,0,477.38,403.76Z"/>' +
+  '<path fill="currentColor" d="M509.59,397.39L323.83,196.74a40,40,0,0,0-58.63-.08L83.09,392.29a40,40,0,0,1-56.53,2h0a40,40,0,0,1-2-56.53L265.36,79.07a40,40,0,0,1,58.63.08L568.3,343a40,40,0,0,1-2.18,56.53h0A40,40,0,0,1,509.59,397.39Z"/>' +
+  "</svg>";
+const ICON_ZOOM_IN =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 100 595.28 640" width="16" height="16" aria-hidden="true">' +
+  '<circle fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="60" cx="237.42" cy="329.29" r="169.09" transform="translate(-163.31 264.32) rotate(-45)"/>' +
+  '<rect fill="currentColor" x="428.28" y="406.9" width="60" height="286.5" rx="30" ry="30" transform="translate(-254.79 485.18) rotate(-45)"/>' +
+  '<path fill="currentColor" d="M300.41,299.29h-33v-33a30,30,0,0,0-60,0v33h-33a30,30,0,0,0-30,30h0a30,30,0,0,0,30,30h33v33a30,30,0,1,0,60,0v-33h33a30,30,0,0,0,30-30h0A30,30,0,0,0,300.41,299.29Z"/>' +
+  "</svg>";
+const ICON_ZOOM_OUT =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 100 595.28 640" width="16" height="16" aria-hidden="true">' +
+  '<rect fill="currentColor" x="143.94" y="299.29" width="185.99" height="60" rx="30" ry="30"/>' +
+  '<circle fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="60" cx="236.93" cy="329.29" r="169.09" transform="translate(-163.45 263.98) rotate(-45)"/>' +
+  '<rect fill="currentColor" x="427.79" y="406.9" width="60" height="286.5" rx="30" ry="30" transform="translate(-254.93 484.84) rotate(-45)"/>' +
+  "</svg>";
+
+/**
+ * Scale the view about its current center by `factor` (>1 zooms in, <1 out)
+ * via the d3-graphviz instance's public zoomBehavior().scaleBy — the same
+ * mechanism d3-zoom's scroll/double-click gestures use. No-op before the
+ * first render (no zoom behavior yet). Guarded against d3 throwing, mirroring
+ * resetZoomToFit.
+ */
+export function zoomBy(factor: number): void {
+  try {
+    const gv = graphviz("#app");
+    const behavior = gv.zoomBehavior();
+    const selection = gv.zoomSelection();
+    if (behavior && selection) {
+      behavior.scaleBy(selection, factor);
+    }
+  } catch (err) {
+    console.warn("interactive-graphviz: zoomBy failed", err);
+  }
+}
+
+/**
+ * Install the fixed view toolbar at the top-right: home (reset to fit),
+ * zoom in, zoom out. Idempotent via DOM id guard (not a module flag) so it
+ * can be reinstalled after the body is rebuilt. Attached to <body>, outside
+ * #app, so d3-graphviz re-renders never touch it.
+ */
+export function installViewToolbar(): void {
+  if (document.getElementById(VIEW_TOOLBAR_ID)) return;
+
+  const bar = document.createElement("div");
+  bar.id = VIEW_TOOLBAR_ID;
+  bar.setAttribute("role", "toolbar");
+  bar.setAttribute("aria-label", "View controls");
+  // z-index 9998: below the error overlay / empty notice (9999); those are
+  // pointer-events:none so the buttons stay clickable even if overlapped.
+  bar.style.cssText =
+    "position:fixed;top:8px;right:8px;display:flex;flex-direction:column;" +
+    "gap:4px;z-index:9998;";
+
+  const addButton = (iconSvg: string, tooltip: string, onClick: () => void) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.innerHTML = iconSvg;
+    btn.title = tooltip;
+    // The icon SVGs are aria-hidden, so give AT a real name (title alone is
+    // announced inconsistently across screen readers).
+    btn.setAttribute("aria-label", tooltip);
+    btn.style.cssText =
+      "width:28px;height:28px;background:rgba(40,40,40,0.85);color:#cccccc;" +
+      "border:none;border-radius:4px;display:flex;align-items:center;" +
+      "justify-content:center;padding:0;cursor:pointer;";
+    // Keep focus where it is (e.g. in the open search input) — a mouse click
+    // must not move focus onto the button, which would both blur the search
+    // box (breaking its Esc-to-close) and let a later Space/Enter re-fire
+    // the zoom. Keyboard Tab-focus + Enter still activates normally.
+    btn.addEventListener("mousedown", (e) => e.preventDefault());
+    btn.addEventListener("click", onClick);
+    bar.appendChild(btn);
+  };
+
+  addButton(ICON_HOME, "Reset view to fit (0 or r)", () => resetZoomToFit());
+  addButton(ICON_ZOOM_IN, "Zoom in (scroll up / double-click)", () => zoomBy(ZOOM_BUTTON_FACTOR));
+  addButton(ICON_ZOOM_OUT, "Zoom out (scroll down / Shift+double-click)", () =>
+    zoomBy(1 / ZOOM_BUTTON_FACTOR),
+  );
+
+  document.body.appendChild(bar);
+}
+
+/** Returns the toolbar element (or null). Production code never calls this. */
+export function _viewToolbarElement(): HTMLElement | null {
+  return document.getElementById(VIEW_TOOLBAR_ID);
 }
 
 // ── Click-to-highlight neighbors (Story 5.2) ─────────────────────────────────
@@ -781,7 +900,12 @@ const SEARCH_CSS = `
 #${SEARCH_BOX_ID} { position:fixed; top:8px; left:50%; transform:translateX(-50%);
   background:rgba(30,30,30,0.92); color:#eee; padding:6px 8px; border-radius:6px;
   font-size:13px; font-family:monospace; z-index:9999; pointer-events:auto;
-  display:flex; align-items:center; gap:8px; box-shadow:0 2px 8px rgba(0,0,0,0.4); }
+  display:flex; align-items:center; gap:8px; box-shadow:0 2px 8px rgba(0,0,0,0.4);
+  /* Cap the centered box so its right edge stays >=48px from the viewport edge
+     on narrow windows — clear of the view toolbar's right column (see
+     VIEW_TOOLBAR_CLEARANCE_PX); without this the higher-z-index, pointer-events:auto
+     box would capture the toolbar buttons' clicks. */
+  max-width:calc(100vw - 96px); flex-wrap:wrap; }
 #${SEARCH_BOX_ID} input[type=text] { background:#1b1b1b; color:#eee; border:1px solid #444;
   border-radius:4px; padding:3px 6px; font-family:monospace; font-size:13px; width:220px; outline:none; }
 #${SEARCH_BOX_ID} label { display:flex; align-items:center; gap:3px; cursor:pointer; user-select:none; }

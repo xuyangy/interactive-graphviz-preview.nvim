@@ -49,6 +49,15 @@ exclusively by `expose_to_lan`. Unknown keys (including typos in
 ==============================================================================
 INTERACTIVITY KEYS                     *interactive-graphviz-interactivity*
 
+                                          *interactive-graphviz-view-controls*
+Browser view controls ~
+    In the preview, the view is driven by mouse gestures — scroll wheel to
+    zoom, double-click to zoom in, Shift+double-click to zoom out, click+drag
+    to pan, `0` or `r` to reset the view to fit the viewport. A toolbar at
+    the top-right offers the same as buttons: a home icon to reset-to-fit
+    and +/- magnifier icons to zoom. See the README for the full gesture
+    table.
+
                                           *interactive-graphviz-preserve_view*
 preserve_view ~
     Boolean, default `true`. Keep the current zoom/pan across live-reload

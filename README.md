@@ -85,8 +85,11 @@ The preview is interactive — navigate large graphs without leaving Neovim:
 | Gesture | Action |
 | --- | --- |
 | Scroll wheel | Zoom in / out |
+| Double-click | Zoom in |
+| Shift + double-click | Zoom out |
 | Click + drag | Pan |
 | `0` or `r` | Reset the view to fit the viewport |
+| Toolbar (top-right) | Click the home icon to reset the view, the +/- magnifiers to zoom — button equivalents of the gestures above |
 | Click a node | Highlight it and its neighbors; dim the rest. Also moves the Neovim cursor to the node's source line (when `sync.jump_on_click`) |
 | Shift + click | Add another node to the highlight (multi-select) |
 | Alt + click | Also highlight the whole cluster the node lives in |
