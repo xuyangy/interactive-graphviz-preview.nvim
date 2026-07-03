@@ -1,6 +1,6 @@
 ---
 title: UX — Bidirectional Sync (v3)
-status: lightweight spec
+status: as-built (Epic 6 shipped)
 created: 2026-06-11
 scope: Epic 6 (FR-19–FR-20)
 companion: ux-interactivity-v2.md
@@ -34,6 +34,10 @@ Preview and the Neovim cursor. Both directions are config-gated and on by defaul
     selection next; cursor echo is purely additive beneath both).
 - Leaving the node's line (or disabling) clears the emphasis. Last-wins; no trail.
 - Gate: `sync.highlight_on_cursor` (default `true`).
+- **As-built treatment (Story 6.3):** blue `#4fc3f7` stroke-only outline on an `ig-cursor` class;
+  a subtle pulse that is animation-gated (respects `animate = false` and reduced-motion);
+  precedence encoded in CSS via `:not(.ig-selected):not(.ig-neighbor)` so search/click emphasis
+  always wins over the cursor echo.
 
 ## Anti-feedback rule
 

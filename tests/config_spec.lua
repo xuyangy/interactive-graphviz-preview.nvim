@@ -562,6 +562,95 @@ describe("config.setup — sync validation (Story 6.2)", function()
   end)
 end)
 
+describe("config.setup — unknown-key warnings (Story 6.4)", function()
+  before_each(reset)
+
+  -- pairs() order is undefined: multi-warning assertions use set-membership.
+  local function has_warning(fragment)
+    for _, msg in ipairs(warn_calls) do
+      if msg:find(fragment, 1, true) then
+        return true
+      end
+    end
+    return false
+  end
+
+  it("an unknown top-level key warns naming the key and is dropped", function()
+    local opts = config.setup({ debouce_ms = 100 })
+    assert.are.equal(1, #warn_calls)
+    assert.truthy(warn_calls[1]:find("unknown key 'debouce_ms'", 1, true))
+    assert.truthy(warn_calls[1]:find("ignored", 1, true))
+    assert.is_nil(opts.debouce_ms, "typo'd key is dropped, not merged")
+    assert.is_nil(config.get().debouce_ms)
+    assert.are.equal(200, opts.debounce_ms, "the real key keeps its default")
+  end)
+
+  it("an unknown search subfield warns with the dotted path and is dropped", function()
+    local opts = config.setup({ search = { case_sensitve = true } })
+    assert.are.equal(1, #warn_calls)
+    assert.truthy(warn_calls[1]:find("unknown key 'search.case_sensitve'", 1, true))
+    assert.is_nil(opts.search.case_sensitve)
+    assert.are.equal(false, opts.search.case_sensitive, "the real subfield keeps its default")
+  end)
+
+  it("an unknown sync subfield warns with the dotted path and is dropped", function()
+    local opts = config.setup({ sync = { jump_onclick = false } })
+    assert.are.equal(1, #warn_calls)
+    assert.truthy(warn_calls[1]:find("unknown key 'sync.jump_onclick'", 1, true))
+    assert.is_nil(opts.sync.jump_onclick)
+    assert.are.equal(true, opts.sync.jump_on_click, "the real subfield keeps its default")
+  end)
+
+  it("multiple unknown keys all warn (set-membership, pairs order undefined)", function()
+    config.setup({ debouce_ms = 100, hartbeat_ms = 500 })
+    assert.are.equal(2, #warn_calls)
+    assert.is_true(has_warning("unknown key 'debouce_ms'"))
+    assert.is_true(has_warning("unknown key 'hartbeat_ms'"))
+  end)
+
+  it("a full valid config (every documented key set) produces zero warnings", function()
+    local opts = config.setup({
+      engine = "neato",
+      engines = { "dot", "neato" },
+      debounce_ms = 300,
+      port = 8080,
+      expose_to_lan = false,
+      bind = "10.0.0.1", -- known key: silently overridden by the security invariant
+      open_cmd = "open",
+      preserve_view = false,
+      highlight_mode = "single",
+      animate = false,
+      search = { scope = "nodes", case_sensitive = true, regex = true },
+      sync = { jump_on_click = false, highlight_on_cursor = false, cursor_debounce_ms = 300 },
+      heartbeat_ms = 1000,
+      log_level = "info",
+    })
+    assert.are.equal(0, #warn_calls)
+    assert.are.equal("neato", opts.engine)
+  end)
+
+  it("setup{ open_cmd = 'firefox' } produces zero warnings (nil-default trap)", function()
+    local opts = config.setup({ open_cmd = "firefox" })
+    assert.are.equal("firefox", opts.open_cmd)
+    assert.are.equal(0, #warn_calls, "open_cmd is a known key despite its nil default")
+  end)
+
+  it("zero-config produces zero warnings", function()
+    config.setup()
+    assert.are.equal(0, #warn_calls)
+    reset()
+    config.setup({})
+    assert.are.equal(0, #warn_calls)
+  end)
+
+  it("an unknown subfield never affects sibling validation", function()
+    local opts = config.setup({ search = { case_sensitve = true, scope = "nodes" } })
+    assert.are.equal("nodes", opts.search.scope, "valid sibling applies")
+    assert.are.equal(1, #warn_calls, "exactly one warning (the typo)")
+    assert.is_true(has_warning("unknown key 'search.case_sensitve'"))
+  end)
+end)
+
 describe("config.setup — open_cmd validation", function()
   before_each(reset)
 

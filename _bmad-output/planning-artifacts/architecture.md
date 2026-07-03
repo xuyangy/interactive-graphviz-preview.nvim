@@ -137,7 +137,8 @@ Locked design details that flow from this decision:
   liveness probe), never built-but-dark.
 - **Security.** Bind literal 127.0.0.1 by default; explicit LAN opt-in; reserve a
   per-session token in the handshake (cheap now, expensive to retrofit when the
-  return channel becomes active in v2).
+  return channel becomes active — it did, in v3; see "Return Channel Activation
+  (v3)").
 - **Supply-chain integrity.** Checksum verification (fail closed) + tag pinning;
   consider signing the checksum manifest and reproducible builds.
 - **Platform portability.** glibc vs musl is a real fracture line for "prebuilt"
@@ -292,7 +293,8 @@ No database. State is in-memory and process-scoped.
 - **Server → browser:** `Bun.serve` native WebSocket; same JSON envelope.
 - **Browser → server:** same WS, **warm but dormant** — v1 sends only a `hello`
   (subscribe to a sessionId + token) and periodic `ack`/heartbeat; no v1 feature
-  depends on it. Reserved for v2 sync.
+  depends on it. Reserved for later sync (activated in v3 — see "Return Channel
+  Activation (v3)").
 - **Envelope:** `{ type: string, v?: number, sessionId?: number, ... }`. `v` is the
   monotonic per-session render version, stamped at the Neovim source and carried
   end-to-end; the browser discards any completed render whose `v` is older than the
@@ -304,7 +306,8 @@ Message set (v1):
 - server→Lua: `ready{port,token}` (startup announce), `pong`, `log{level,msg}`.
 - server→browser: `render{v,engine,dot}`, `error_display{v,message}`,
   `session_closed`.
-- browser→server: `hello{sessionId,token}`, `ack{v}` (dormant beyond these in v1).
+- browser→server: `hello{sessionId,token}`, `ack{v}` (dormant beyond these in v1;
+  activated in v3 — see "Return Channel Activation (v3)").
 
 ### Render Pipeline (the "frontend architecture")
 
@@ -382,7 +385,8 @@ URL-param path (`frontend/urlconfig.ts`).
 - Ephemeral port (`bind :0`, read back, announced over `ready`).
 - **Per-session token** minted at startup, required in the browser URL and the WS
   `hello`; the server rejects connections without it (cheap now; load-bearing once
-  the return channel becomes active in v2).
+  the return channel becomes active — it did, in v3; see "Return Channel
+  Activation (v3)").
 - `expose_to_lan` is an explicit opt-in that changes the bind address; documented as
   a deliberate security downgrade.
 
@@ -447,7 +451,8 @@ Commands: `:GraphvizPreview`, `:GraphvizPreviewStop`, `:GraphvizPreviewToggle`,
   WS hop and the frontend render-lock; all three tiers must agree on it.
 - The stdio pipe is simultaneously the control channel AND the parent-death signal —
   changing the transport would change the cleanup guarantee.
-- The per-session token couples Security ↔ Transport ↔ the (dormant) return channel.
+- The per-session token couples Security ↔ Transport ↔ the (dormant in v1;
+  activated in v3 — see "Return Channel Activation (v3)") return channel.
 - Engine `engines` list is the single seam through which deferred layout engines
   re-enter without touching the render pipeline.
 

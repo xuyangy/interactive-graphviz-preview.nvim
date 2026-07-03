@@ -15,12 +15,17 @@
   consumes until a future watcher's first move; with two watched buffers the wrong buffer can consume
   it (one echo passes, one legit emphasis tick swallowed). Spec-sanctioned one-tick degradation
   (Task 4 locked module-level, no TTL) — key by bufnr during hardening.
-  [lua/interactive-graphviz/sync.lua:295] **→ Story 6.4**
+  [lua/interactive-graphviz/sync.lua:295] **→ Story 6.4** ✅ resolved in Story 6.4 (2026-07-03):
+  suppression is a table keyed by bufnr, consumed per buffer, and armed only when the buffer has an
+  active cursor watch (`last_sent[bufnr]` liveness) — the "armed flag nothing consumes" scenario is
+  structurally closed; cleared in stop_cursor_watch/stop_all.
 - A running cursor watcher never re-reads `highlight_on_cursor` — a mid-session
   `setup({sync={highlight_on_cursor=false}})` keeps emitting `emphasize` frames until re-preview or
   stop (delay changes DO apply; the boolean gate lives only at preview-start,
   commands.lua:154). Add an emission-time config check.
-  [lua/interactive-graphviz/sync.lua:402] **→ Story 6.4**
+  [lua/interactive-graphviz/sync.lua:402] **→ Story 6.4** ✅ resolved in Story 6.4 (2026-07-03):
+  `emit_for_cursor` re-reads `sync.highlight_on_cursor` at emission time and returns early when
+  disabled; a mid-session setup() change applies at the next debounce fire, no re-preview needed.
 - Browser reload/reconnect and fresh preview open can lose the resting cursor emphasis:
   `last_sent` dedupe suppresses re-emit while the cursor rests on the same node, and the server
   intentionally never replays `emphasize` (transient, not lastGoodRender). On a fresh preview, the
@@ -32,7 +37,9 @@
 - `emit_for_cursor` runs via `vim.schedule` outside the CursorMoved callback's pcall — internals are
   individually guarded so no realistic throw path exists, but the warn-and-continue guard is not
   where the comments imply; wrap the scheduled call for symmetry.
-  [lua/interactive-graphviz/sync.lua:466] **→ Story 6.4**
+  [lua/interactive-graphviz/sync.lua:466] **→ Story 6.4** ✅ resolved in Story 6.4 (2026-07-03):
+  both `vim.schedule`d `emit_for_cursor` sites (debounce fire + watch-start reconcile) are
+  pcall-wrapped with a log.warn mirroring the CursorMoved callback's guard.
 - Pre-existing (Epic 1): `render.stop_all` misses watchers whose debounce timer already fired —
   `debounce` nils `timers[bufnr]` on fire (render.lua:48-49) and `stop_all` walks `timers`
   (render.lua:88), so steady-state buffers keep their augroup through graceful teardown. Sync's
@@ -57,7 +64,10 @@
   configuration only and points at the README for commands, so no command (including the new
   `:GraphvizUrl`) is discoverable via `:help interactive-graphviz`. Pre-existing structural gap,
   extended-not-created by this change. Add a COMMANDS section mirroring the README table (natural
-  home: Story 6.4's docs pass). [doc/interactive-graphviz.txt]
+  home: Story 6.4's docs pass). [doc/interactive-graphviz.txt] ✅ resolved in Story 6.4
+  (2026-07-03): vimdoc gains a COMMANDS section with help tags for all six commands
+  (`:GraphvizPreview`, `:GraphvizPreviewStop`, `:GraphvizPreviewToggle`, `:GraphvizEngine`,
+  `:GraphvizUrl`, `:checkhealth interactive-graphviz`) plus the `sync` config keys.
 
 ## Deferred from: code review of 6-1-activate-the-return-channel-protocol-spine (2026-06-23)
 
@@ -65,7 +75,7 @@
 
 ## Deferred from: code review of spec-promote-interactivity-config (2026-06-10)
 
-- Unknown config keys/subfields are silently accepted plugin-wide: `setup{ search = { case_sensitve = true } }` (typo) or any unknown top-level key produces zero warnings — `tbl_deep_extend` merges them and validation only checks known keys. The README's "invalid values are rejected with a warning" promise doesn't cover unknown-key typos. A warn-on-unknown-keys pass in `validate()` (top level + `search` subfields) would close the trap; pre-existing behavior for top-level keys, newly relevant for the nested `search` table. [lua/interactive-graphviz/config.lua validate()] **→ Story 6.4** (v3 adds a second nested table, `sync`, doubling the trap surface)
+- Unknown config keys/subfields are silently accepted plugin-wide: `setup{ search = { case_sensitve = true } }` (typo) or any unknown top-level key produces zero warnings — `tbl_deep_extend` merges them and validation only checks known keys. The README's "invalid values are rejected with a warning" promise doesn't cover unknown-key typos. A warn-on-unknown-keys pass in `validate()` (top level + `search` subfields) would close the trap; pre-existing behavior for top-level keys, newly relevant for the nested `search` table. [lua/interactive-graphviz/config.lua validate()] **→ Story 6.4** (v3 adds a second nested table, `sync`, doubling the trap surface) ✅ resolved in Story 6.4 (2026-07-03): `validate()` warns about and drops unknown top-level keys (known set = `M.defaults` keys + `open_cmd`, whose nil default hides it from `pairs`) and unknown `search`/`sync` subfields (dotted-path warnings); README/vimdoc promise updated to cover typos.
 - The Lua↔TS config contract (six URL param names + their default values) is duplicated with no shared source of truth: `commands.lua` emits the params, `frontend/urlconfig.ts` parses them, and each side's tests assert its own copy — a rename/typo on either side keeps both suites green while config silently stops applying (absent params are indistinguishable from defaults by design). A cross-boundary contract test (assert both files agree on the six literal names, or generate them from one source) would close the structural blind spot. [lua/interactive-graphviz/commands.lua, frontend/urlconfig.ts] **→ Story 6.1** (v3's `sync.jump_on_click` gate extends this same param contract) ✅ resolved in Story 6.1 (2026-06-22): `frontend/urlparam-contract.test.ts` extracts the param names from both `commands.lua` (emitter) and `urlconfig.ts` (parser) and asserts set-equality against the canonical 6 (catches a rename/typo on either side), plus asserts `config.lua` defaults encode the contract values.
 
 ## Deferred from: code review of story 5-4-animated-transitions-and-polish (2026-06-08)

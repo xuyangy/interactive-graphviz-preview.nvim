@@ -83,7 +83,7 @@ The preview is interactive — navigate large graphs without leaving Neovim:
 | Scroll wheel | Zoom in / out |
 | Click + drag | Pan |
 | `0` or `r` | Reset the view to fit the viewport |
-| Click a node | Highlight it and its neighbors; dim the rest |
+| Click a node | Highlight it and its neighbors; dim the rest. Also moves the Neovim cursor to the node's source line (when `sync.jump_on_click`) |
 | Shift + click | Add another node to the highlight (multi-select) |
 | Alt + click | Also highlight the whole cluster the node lives in |
 | `/` | Open the live-search box (type to filter nodes / edges) |
@@ -150,6 +150,28 @@ honors your system's reduced-motion preference: if your OS requests
 instantly regardless of the config. The non-animated instant path is the exact
 same end result, just without the tween.
 
+### Editor↔graph sync
+
+The preview and the DOT buffer stay linked in both directions:
+
+- **Graph → editor** (gated by `sync.jump_on_click`, default on): click a node
+  in the preview and the Neovim cursor jumps to the node's first occurrence in
+  the source buffer. Degradation is graceful: if the clicked node no longer
+  exists in the buffer (the browser can be a beat behind your edits), or the
+  buffer isn't displayed in any window, you get an informative notification
+  instead of a wrong jump.
+- **Editor → graph** (gated by `sync.highlight_on_cursor`, default on): rest
+  the cursor on a node's line and that node gets a passive blue outline in the
+  preview, debounced by `sync.cursor_debounce_ms`. Moving to a line with no
+  node clears the outline. The outline is deliberately quieter than
+  click-highlight — it never dims the rest of the graph and never fights an
+  active selection.
+
+One caveat, by design: on a click-jump, **OS window focus stays in the
+browser** — the cursor moves, but the plugin never raises or focuses the
+Neovim window. Which window your keystrokes land in is window-manager
+territory, out of scope.
+
 ## Configuration
 
 Defaults shown; pass any subset to `setup{}`:
@@ -170,14 +192,21 @@ require("interactive-graphviz").setup({
     case_sensitive = false,  -- start with the Aa toggle on
     regex = false,           -- start with the .* toggle on
   },
+  sync = {                   -- editor↔graph sync (see "Editor↔graph sync")
+    jump_on_click = true,    -- clicking a node moves the Neovim cursor to its source line
+    highlight_on_cursor = true, -- cursor on a node's line outlines it in the preview
+    cursor_debounce_ms = 150,   -- cursor-sync debounce (ms), > 0
+  },
   heartbeat_ms = 2000,       -- supervision heartbeat interval (ms), > 0
   log_level = "warn",        -- off | error | warn | info | debug
 })
 ```
 
 Invalid values are rejected with a warning and fall back to the default rather
-than failing setup. Note that `bind` is **not** a user-settable key — the bind
-address is controlled exclusively by `expose_to_lan` (see Security).
+than failing setup. Unknown keys — including typos in `search`/`sync` subfields,
+like `case_sensitve` — warn naming the offending key and are ignored. Note that
+`bind` is **not** a user-settable key — the bind address is controlled
+exclusively by `expose_to_lan` (see Security).
 
 The interactivity keys (`preserve_view`, `highlight_mode`, `animate`, `search`)
 are carried to the browser in the preview URL, so they **apply when a preview
@@ -185,6 +214,16 @@ opens**. An already-open preview does not pick up a changed value live — and
 reloading the tab re-applies the *old* config baked into that tab's URL, not
 your latest `setup()`. To pick up a change, re-open the preview
 (`:GraphvizPreviewStop`, then `:GraphvizPreview`).
+
+The sync keys split across that line: `sync.jump_on_click` rides the preview
+URL like the interactivity keys (applies at preview open; a tab reload
+re-applies the value baked into the URL), while `sync.highlight_on_cursor` and
+`sync.cursor_debounce_ms` are read on the Neovim side — a `setup()` change
+applies from the next cursor movement, no re-open needed. One nuance when
+turning `highlight_on_cursor` off mid-session: new outlines stop immediately,
+but an outline already on screen stays until the next preview open or stop
+(emphasis frames are transient and last-wins; nothing repaints on a config
+change alone).
 
 ## How install works
 

@@ -286,18 +286,31 @@ end
 
 -- ── Story 6.3: one-shot echo suppression (AC3 / NFR-8) ───────────────────────
 
--- A 6.2 sync-initiated cursor jump would otherwise fire CursorMoved and echo an
--- `emphasize` straight back to the browser. handle_node_click sets this flag
--- ONLY when the jump actually moved the cursor in the CURRENT window (any other
--- jump fires no CursorMoved here, and a stale flag would swallow the user's
--- next legitimate emphasis); the watcher callback consumes it instead of
--- debouncing. Self-healing by design: a stale flag costs one emphasis tick.
-local suppress_next = false
+-- Per-buffer last emphasize payload (node id, or NONE for "cleared/nothing"),
+-- so resting on the same line never re-streams identical frames. A fresh watch
+-- seeds an "unseeded" sentinel instead (see start_cursor_watch) so its first
+-- emission is never deduped away. Declared here (not in the watcher section
+-- below) because a non-nil entry is ALSO the watch-liveness signal
+-- handle_node_click checks before arming suppression.
+local NONE = {}
+local last_sent = {}
 
--- Consume-once. Returns whether a suppression was pending (and clears it).
-function M.consume_suppression()
-  if suppress_next then
-    suppress_next = false
+-- A 6.2 sync-initiated cursor jump would otherwise fire CursorMoved and echo an
+-- `emphasize` straight back to the browser. handle_node_click arms a buffer's
+-- flag ONLY when the jump actually moved the cursor in the CURRENT window AND
+-- that buffer has an active cursor watch (an unwatched buffer has no callback
+-- to consume the flag — arming it would leave a stale one-shot to swallow the
+-- first emphasis of a LATER watch). Keyed by bufnr so one buffer's pending
+-- suppression never swallows another buffer's legitimate emphasis; the watcher
+-- callback consumes its own buffer's flag instead of debouncing. Self-healing
+-- by design: a stale flag costs one emphasis tick.
+local suppress = {}
+
+-- Consume-once, per buffer. Returns whether a suppression was pending for
+-- `bufnr` (and clears it).
+function M.consume_suppression(bufnr)
+  if suppress[bufnr] then
+    suppress[bufnr] = nil
     return true
   end
   return false
@@ -366,7 +379,8 @@ function M.handle_node_click(session_id, node_id)
   end
   -- Echo suppression (Story 6.3, AC3): arm the one-shot only when this jump
   -- will actually fire a CursorMoved in the current window — i.e. the target
-  -- IS the current window and the position really changed.
+  -- IS the current window and the position really changed — and only when the
+  -- buffer has an active cursor watch to consume it (last_sent liveness).
   local ok_cur, cur_win = pcall(vim.api.nvim_get_current_win)
   if
     ok_cur
@@ -374,8 +388,9 @@ function M.handle_node_click(session_id, node_id)
     and ok_before
     and type(before) == "table"
     and (before[1] ~= lnum or before[2] ~= col - 1)
+    and last_sent[bufnr] ~= nil
   then
-    suppress_next = true
+    suppress[bufnr] = true
   end
   if other_tab then
     log.notify(
@@ -389,13 +404,9 @@ end
 -- ── Story 6.3: debounced cursor watcher → emphasize emission (FR-20) ─────────
 
 -- Per-buffer debounce timers, latest-wins — the exact render.lua pattern.
+-- (NONE and last_sent live in the suppression section above: last_sent doubles
+-- as the watch-liveness signal handle_node_click reads.)
 local timers = {}
--- Per-buffer last emphasize payload (node id, or NONE for "cleared/nothing"),
--- so resting on the same line never re-streams identical frames. A fresh watch
--- seeds an "unseeded" sentinel instead (see start_cursor_watch) so its first
--- emission is never deduped away.
-local NONE = {}
-local last_sent = {}
 
 -- Resolve the node under the cursor for `bufnr` and send `emphasize` on
 -- change. Runs on the debounce boundary via vim.schedule. Reads the cursor
@@ -407,6 +418,15 @@ local function emit_for_cursor(bufnr)
   end
   local session = require("interactive-graphviz.session")
   if not session.has(bufnr) then
+    return
+  end
+  -- Re-read the gate at emission time (defensive .sync-or-{} read, matching
+  -- debounce() below): a mid-session setup{sync={highlight_on_cursor=false}}
+  -- stops emissions at the next debounce fire, no re-preview needed. Watcher
+  -- teardown stays reconcile_cursor_watch's job (commands.lua) — this gate
+  -- only silences the emission where the work happens.
+  local sync_cfg = require("interactive-graphviz.config").get().sync or {}
+  if sync_cfg.highlight_on_cursor ~= true then
     return
   end
   local node = nil
@@ -466,7 +486,14 @@ local function debounce(bufnr)
       timers[bufnr] = nil
     end
     vim.schedule(function()
-      emit_for_cursor(bufnr)
+      -- Guard symmetry with the CursorMoved callback below: a throwing emit
+      -- must warn, never propagate out of the scheduled context.
+      local ok, err = pcall(emit_for_cursor, bufnr)
+      if not ok then
+        require("interactive-graphviz.log").warn(
+          "GraphvizSync: emphasis emission error for buffer " .. bufnr .. ": " .. tostring(err)
+        )
+      end
     end)
   end)
 end
@@ -497,7 +524,15 @@ function M.start_cursor_watch(bufnr)
     callback = function()
       -- A 6.2 sync-initiated jump must not echo back (AC3): consume the
       -- one-shot BEFORE debouncing so no timer is even armed.
-      if M.consume_suppression() then
+      if M.consume_suppression(bufnr) then
+        -- Also cancel a debounce armed by a pre-jump cursor move: it would
+        -- fire against the post-jump cursor and emit the very echo this
+        -- one-shot suppresses (review finding, Story 6.4).
+        if timers[bufnr] then
+          timers[bufnr]:stop()
+          timers[bufnr]:close()
+          timers[bufnr] = nil
+        end
         return
       end
       local ok, err = pcall(debounce, bufnr)
@@ -510,11 +545,17 @@ function M.start_cursor_watch(bufnr)
   })
   -- Reconcile the browser with the CURRENT cursor position at watch start —
   -- emphasize the node already under the cursor, or clear a stale ghost.
-  -- Best-effort: with no subscriber connected yet the server drops the frame
-  -- (a fresh preview still needs the first cursor move; replay-on-reconnect
-  -- is Story 6.4 work).
+  -- Best-effort: with no subscriber connected yet the server drops the frame,
+  -- so a fresh preview still needs the first cursor move. Fixing that needs
+  -- replay-on-reconnect, which requires Lua-side subscriber awareness the
+  -- protocol does not signal — deferred, see deferred-work.md.
   vim.schedule(function()
-    emit_for_cursor(bufnr)
+    local ok, err = pcall(emit_for_cursor, bufnr)
+    if not ok then
+      require("interactive-graphviz.log").warn(
+        "GraphvizSync: emphasis emission error for buffer " .. bufnr .. ": " .. tostring(err)
+      )
+    end
   end)
 end
 
@@ -526,6 +567,7 @@ function M.stop_cursor_watch(bufnr)
     timers[bufnr] = nil
   end
   last_sent[bufnr] = nil
+  suppress[bufnr] = nil
   pcall(vim.api.nvim_del_augroup_by_name, "InteractiveGraphvizSync" .. bufnr)
 end
 
@@ -551,6 +593,7 @@ function M.stop_all()
     M.stop_cursor_watch(bufnr)
   end
   last_sent = {}
+  suppress = {}
 end
 
 return M

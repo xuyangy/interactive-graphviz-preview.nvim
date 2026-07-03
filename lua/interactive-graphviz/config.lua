@@ -29,6 +29,16 @@ M.defaults = {
 
 M.options = vim.deepcopy(M.defaults)
 
+-- Known top-level keys for the unknown-key scan. open_cmd defaults to nil, so
+-- it has no entry in M.defaults and pairs() cannot see it — without the
+-- explicit seed a legitimate `setup{ open_cmd = "firefox" }` would false-flag
+-- as unknown. Any FUTURE key whose default is nil must be seeded into this
+-- literal too, or the scan will warn on and drop legitimate configs.
+local KNOWN_KEYS = { open_cmd = true }
+for k in pairs(M.defaults) do
+  KNOWN_KEYS[k] = true
+end
+
 local VALID_LOG_LEVELS = { off = true, error = true, warn = true, info = true, debug = true }
 
 local VALID_HIGHLIGHT_MODES =
@@ -54,6 +64,19 @@ end
 -- fully written to avoid a log → config circular read with stale state.
 local function validate(opts)
   local warnings = {}
+
+  -- Unknown top-level keys warn and are dropped instead of being silently
+  -- merged (typo safety). Clearing an existing field during pairs() traversal
+  -- is defined behavior in Lua.
+  for k in pairs(opts) do
+    if not KNOWN_KEYS[k] then
+      table.insert(
+        warnings,
+        "interactive-graphviz setup: unknown key '" .. tostring(k) .. "' (ignored)"
+      )
+      opts[k] = nil
+    end
+  end
 
   -- validate engines (non-empty list of strings) first — engine depends on it
   if
@@ -199,6 +222,16 @@ local function validate(opts)
     -- by reference), and validation must never mutate caller-owned data.
     local user = opts.search
     local validated = vim.deepcopy(M.defaults.search)
+    -- Unknown subfields warn with a dotted path so typos are unambiguous; the
+    -- fresh-table copy below already drops them.
+    for k in pairs(user) do
+      if M.defaults.search[k] == nil then
+        table.insert(
+          warnings,
+          "interactive-graphviz setup: unknown key 'search." .. tostring(k) .. "' (ignored)"
+        )
+      end
+    end
     if user.scope ~= nil then
       if type(user.scope) == "string" and VALID_SEARCH_SCOPES[user.scope] then
         validated.scope = user.scope
@@ -235,14 +268,23 @@ local function validate(opts)
   end
 
   -- validate sync is a table; same fresh-table discipline as search above so
-  -- validation never mutates caller-owned data. Known keys are validated here
-  -- (Stories 6.2/6.3); unknown-key warnings are Story 6.4.
+  -- validation never mutates caller-owned data.
   if type(opts.sync) ~= "table" then
     table.insert(warnings, "interactive-graphviz setup: sync must be a table; using defaults")
     opts.sync = vim.deepcopy(M.defaults.sync)
   else
     local user = opts.sync
     local validated = vim.deepcopy(M.defaults.sync)
+    -- Unknown subfields warn with a dotted path so typos are unambiguous; the
+    -- fresh-table copy below already drops them.
+    for k in pairs(user) do
+      if M.defaults.sync[k] == nil then
+        table.insert(
+          warnings,
+          "interactive-graphviz setup: unknown key 'sync." .. tostring(k) .. "' (ignored)"
+        )
+      end
+    end
     if user.jump_on_click ~= nil then
       if type(user.jump_on_click) == "boolean" then
         validated.jump_on_click = user.jump_on_click

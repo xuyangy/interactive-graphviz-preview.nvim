@@ -57,6 +57,7 @@ local state = {
   current_win = 0, -- default: matches no window
   set_cursor_error = false, -- force nvim_win_set_cursor to throw
   session_has = {}, -- bufnr → false to deny (default: has)
+  session_error = false, -- force session.has to throw (pcall-symmetry tests)
   sync_cfg = nil, -- config.get().sync override for watcher tests
 }
 
@@ -138,6 +139,9 @@ package.loaded["interactive-graphviz.log"] = log_stub
 -- Story 6.3 collaborators, required lazily by the watcher path.
 package.loaded["interactive-graphviz.session"] = {
   has = function(bufnr)
+    if state.session_error then
+      error("session exploded")
+    end
     return state.session_has[bufnr] ~= false
   end,
 }
@@ -160,6 +164,7 @@ package.loaded["interactive-graphviz.sync"] = nil
 local sync = require("interactive-graphviz.sync")
 
 local function reset()
+  sync.stop_all() -- drain per-buffer state (timers, last_sent, suppress) first
   notify_calls = {}
   cursor_calls = {}
   warn_calls = {}
@@ -177,8 +182,8 @@ local function reset()
   state.current_win = 0
   state.set_cursor_error = false
   state.session_has = {}
+  state.session_error = false
   state.sync_cfg = nil
-  sync.consume_suppression() -- drain any one-shot armed by a previous test
   log_stub.notify = function(msg, level)
     table.insert(notify_calls, { msg = msg, level = level })
   end
@@ -514,7 +519,7 @@ end)
 
 -- ── echo suppression (Story 6.3, AC3) ────────────────────────────────────────
 
-describe("sync echo suppression — one-shot, set only on a real current-window move", function()
+describe("sync echo suppression — per-buffer one-shot, armed only for watched buffers", function()
   before_each(reset)
 
   local function displayed_current(bufnr, lines, winid)
@@ -526,23 +531,29 @@ describe("sync echo suppression — one-shot, set only on a real current-window 
     state.current_win = winid
   end
 
+  -- Arming requires an active cursor watch on the buffer (Story 6.4, AC5a).
+  local function watched_current(bufnr, lines, winid)
+    displayed_current(bufnr, lines, winid)
+    sync.start_cursor_watch(bufnr)
+  end
+
   it("a jump that moves the cursor in the current window arms it — consume-once", function()
-    displayed_current(3, { "a -> b;" })
+    watched_current(3, { "a -> b;" })
     state.win_cursor[1001] = { 1, 0 }
 
     assert.is_true(sync.handle_node_click(3, "b"))
-    assert.is_true(sync.consume_suppression(), "armed by the jump")
-    assert.is_false(sync.consume_suppression(), "one-shot: second consume is empty")
+    assert.is_true(sync.consume_suppression(3), "armed by the jump")
+    assert.is_false(sync.consume_suppression(3), "one-shot: second consume is empty")
   end)
 
   it(
     "a jump landing where the cursor already is does NOT arm (no CursorMoved will fire)",
     function()
-      displayed_current(3, { "a -> b;" })
+      watched_current(3, { "a -> b;" })
       state.win_cursor[1001] = { 1, 5 } -- already exactly on b
 
       assert.is_true(sync.handle_node_click(3, "b"))
-      assert.is_false(sync.consume_suppression())
+      assert.is_false(sync.consume_suppression(3))
     end
   )
 
@@ -553,16 +564,59 @@ describe("sync echo suppression — one-shot, set only on a real current-window 
     state.win_bufs[1001] = 3
     state.current_win = 2002 -- user is in a different window
     state.win_cursor[1001] = { 1, 0 }
+    sync.start_cursor_watch(3)
 
     assert.is_true(sync.handle_node_click(3, "a"))
-    assert.is_false(sync.consume_suppression())
+    assert.is_false(sync.consume_suppression(3))
   end)
 
   it("a failed jump (stale node) never arms", function()
-    displayed_current(3, { "a -> b;" })
+    watched_current(3, { "a -> b;" })
 
     assert.is_false(sync.handle_node_click(3, "ghost"))
-    assert.is_false(sync.consume_suppression())
+    assert.is_false(sync.consume_suppression(3))
+  end)
+
+  it("an UNWATCHED buffer's jump arms nothing (no callback exists to consume it)", function()
+    displayed_current(3, { "a -> b;" }) -- displayed but no cursor watch
+    state.win_cursor[1001] = { 1, 0 }
+
+    assert.is_true(sync.handle_node_click(3, "b"), "the jump itself still happens")
+    assert.is_false(sync.consume_suppression(3), "but no suppression was armed")
+  end)
+
+  it("suppression is per-buffer: A's armed flag never swallows B's move", function()
+    watched_current(3, { "a -> b;" }, 1001)
+    local cb3 = autocmds_created[#autocmds_created].callback
+    state.valid_bufs[4] = true
+    state.buf_lines[4] = { "c -> d;" }
+    state.windows[4] = { 1002 }
+    state.win_bufs[1002] = 4
+    sync.start_cursor_watch(4)
+    local cb4 = autocmds_created[#autocmds_created].callback
+    state.win_cursor[1001] = { 1, 0 }
+
+    -- Arm for buffer 3 via a real current-window jump.
+    assert.is_true(sync.handle_node_click(3, "b"))
+
+    -- Buffer 4's move is NOT swallowed: it debounces normally.
+    local timers_before = #timers_created
+    cb4()
+    assert.are.equal(timers_before + 1, #timers_created, "B's move armed a debounce")
+
+    -- Buffer 3's echo IS swallowed: no timer armed, flag consumed.
+    cb3()
+    assert.are.equal(timers_before + 1, #timers_created, "A's echo armed no timer")
+    assert.is_false(sync.consume_suppression(3), "A's flag was consumed by the callback")
+  end)
+
+  it("stop_cursor_watch clears a still-pending suppression for the buffer", function()
+    watched_current(3, { "a -> b;" })
+    state.win_cursor[1001] = { 1, 0 }
+    assert.is_true(sync.handle_node_click(3, "b"))
+
+    sync.stop_cursor_watch(3)
+    assert.is_false(sync.consume_suppression(3))
   end)
 end)
 
@@ -711,6 +765,17 @@ describe("sync.start_cursor_watch / emphasize emission", function()
     assert.are.equal(timers_before + 1, #timers_created)
   end)
 
+  it("consume also cancels a debounce armed BEFORE the jump (no echo via pending timer)", function()
+    local cb = editing({ "a -> b;" }, { 1, 3 })
+    cb() -- a real user move arms a debounce
+    local pending = timers_created[#timers_created]
+    assert.is_false(pending.stopped)
+    assert.is_true(sync.handle_node_click(3, "b")) -- jump arms the suppression
+    cb() -- the jump's CursorMoved: consumed AND the pending timer cancelled
+    assert.is_true(pending.stopped, "pre-jump debounce cancelled on consume")
+    assert.is_true(pending.closed)
+  end)
+
   it("invalid buffer at fire time sends nothing", function()
     local cb = editing({ "a -> b;" }, { 1, 0 })
     local baseline = #sent_msgs -- watch-start reconciliation frame
@@ -781,6 +846,45 @@ describe("sync.start_cursor_watch / emphasize emission", function()
       assert.is_true(t.stopped)
       assert.is_true(t.closed)
     end
+  end)
+
+  it("gate re-read: highlight_on_cursor=false mid-session stops the next fire", function()
+    local cb = editing({ "a -> b;" }, { 1, 0 })
+    assert.are.equal(1, #sent_msgs, "watch-start reconcile emitted")
+
+    -- Mid-session setup() disable: no re-preview, no watcher teardown.
+    state.sync_cfg = { highlight_on_cursor = false, cursor_debounce_ms = 150 }
+    state.win_cursor[1001] = { 1, 5 } -- moved onto b
+    cb()
+    fire_last_timer()
+    assert.are.equal(1, #sent_msgs, "gate off: the debounce fire sent nothing")
+
+    -- Gate back on: the next change emits again.
+    state.sync_cfg = { highlight_on_cursor = true, cursor_debounce_ms = 150 }
+    cb()
+    fire_last_timer()
+    assert.are.equal(2, #sent_msgs)
+    assert.are.equal("b", sent_msgs[2].nodeId)
+  end)
+
+  it("a throwing emit at debounce fire warns instead of propagating", function()
+    local cb = editing({ "a -> b;" }, { 1, 0 })
+    cb()
+    state.session_error = true
+    fire_last_timer() -- must not throw
+    assert.are.equal(1, #warn_calls)
+    assert.truthy(warn_calls[1]:find("emphasis emission error", 1, true))
+    assert.truthy(warn_calls[1]:find("buffer 3", 1, true), "names the buffer")
+  end)
+
+  it("a throwing emit at watch-start reconcile warns instead of propagating", function()
+    state.valid_bufs[3] = true
+    state.buf_lines[3] = { "a -> b;" }
+    state.session_error = true
+    sync.start_cursor_watch(3) -- reconcile emit runs via the schedule stub
+    assert.are.equal(1, #warn_calls)
+    assert.truthy(warn_calls[1]:find("emphasis emission error", 1, true))
+    assert.are.equal(0, #sent_msgs)
   end)
 
   it("stop_all reaches watchers with NO pending timer (fired or never armed)", function()
