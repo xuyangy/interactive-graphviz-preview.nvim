@@ -43,6 +43,12 @@ jobs:
       - name: Build release artifacts for manifest preparation
         if: steps.context.outputs.publish != 'true'
         run: bun run scripts/release.ts build --out-dir dist/release --write-checksums checksums.txt
+      - name: Rebuild and verify manifest determinism
+        if: steps.context.outputs.publish != 'true'
+        # Guards against a one-off bad artifact poisoning the trust root (bit us
+        # in v0.4.0: a single flaky darwin-arm64 cross-compile). A manifest is
+        # only uploaded when two independent builds agree bit-for-bit.
+        run: bun run scripts/release.ts build --out-dir dist/release-repro --write-checksums dist/release-repro/checksums.txt --verify-against checksums.txt
       - name: Upload prepared checksum manifest
         if: steps.context.outputs.publish != 'true'
         uses: actions/upload-artifact@v6
