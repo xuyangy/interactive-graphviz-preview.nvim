@@ -385,6 +385,14 @@ const ICON_ZOOM_OUT =
   '<circle fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="60" cx="236.93" cy="329.29" r="169.09" transform="translate(-163.45 263.98) rotate(-45)"/>' +
   '<rect fill="currentColor" x="427.79" y="406.9" width="60" height="286.5" rx="30" ry="30" transform="translate(-254.93 484.84) rotate(-45)"/>' +
   "</svg>";
+// Hand-drawn in the same coordinate scale/stroke weight as the icons above:
+// a down-arrow (shaft + head) over a U-shaped tray.
+const ICON_DOWNLOAD =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 100 595.28 640" width="16" height="16" aria-hidden="true">' +
+  '<rect fill="currentColor" x="267.64" y="170" width="60" height="230" rx="30" ry="30"/>' +
+  '<path fill="currentColor" d="M157.64,380h280L297.64,520Z"/>' +
+  '<path fill="none" stroke="currentColor" stroke-width="60" stroke-linecap="round" d="M97.64,560v70a40,40,0,0,0,40,40h320a40,40,0,0,0,40-40v-70"/>' +
+  "</svg>";
 
 /**
  * Scale the view about its current center by `factor` (>1 zooms in, <1 out)
@@ -403,6 +411,63 @@ export function zoomBy(factor: number): void {
     }
   } catch (err) {
     console.warn("interactive-graphviz: zoomBy failed", err);
+  }
+}
+
+/**
+ * Serialize the live rendered graph as a standalone SVG document string, or
+ * null when nothing has rendered yet. Works on a CLONE — the on-screen SVG is
+ * never touched. The export is the clean graph as drawn (WYSIWYG, including
+ * the current zoom/pan transform): the plugin's transient `ig-*` emphasis
+ * classes are stripped (their stylesheet lives in <head> and would not ship
+ * with the file), Graphviz's own classes stay, and the root gets xmlns /
+ * xmlns:xlink injected when missing plus an XML prolog — the proven pattern
+ * from vscode-interactive-graphviz's content/save.js.
+ */
+export function serializeGraphSvg(): string | null {
+  const svg = document.querySelector("#app svg");
+  if (!svg) return null;
+  const clone = svg.cloneNode(true) as Element;
+  // querySelectorAll excludes the clone root — include it explicitly.
+  for (const el of [clone, ...clone.querySelectorAll("[class]")]) {
+    const classes = el.getAttribute("class");
+    if (classes == null) continue;
+    const kept = classes.split(/\s+/).filter((c) => c.length > 0 && !c.startsWith("ig-"));
+    if (kept.length === 0) el.removeAttribute("class");
+    else el.setAttribute("class", kept.join(" "));
+  }
+  let source = new XMLSerializer().serializeToString(clone);
+  if (!/^<svg[^>]*\sxmlns="http:\/\/www\.w3\.org\/2000\/svg"/.test(source)) {
+    source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+  }
+  if (!/^<svg[^>]*\sxmlns:xlink=/.test(source)) {
+    source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+  }
+  return '<?xml version="1.0" encoding="UTF-8"?>\n' + source;
+}
+
+/**
+ * Download the current graph as `graph.svg` (the buffer's filename never
+ * reaches the frontend — only config params ride the preview URL). Silent
+ * no-op before the first render; guarded so a Blob/object-URL quirk can
+ * never take the preview down.
+ */
+export function saveGraphSvg(): void {
+  try {
+    const source = serializeGraphSvg();
+    if (source === null) return;
+    const blob = new Blob([source], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "graph.svg";
+    // Firefox needs the anchor in the document for a synthetic click.
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.warn("interactive-graphviz: saveGraphSvg failed", err);
   }
 }
 
@@ -451,6 +516,7 @@ export function installViewToolbar(): void {
   addButton(ICON_ZOOM_OUT, "Zoom out (scroll down / Shift+double-click)", () =>
     zoomBy(1 / ZOOM_BUTTON_FACTOR),
   );
+  addButton(ICON_DOWNLOAD, "Save as SVG (as currently rendered)", () => saveGraphSvg());
 
   document.body.appendChild(bar);
 }

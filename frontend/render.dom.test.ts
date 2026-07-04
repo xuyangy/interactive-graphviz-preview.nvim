@@ -25,6 +25,8 @@ import {
   installViewToolbar,
   nodeTitleFromClickTarget,
   openSearch,
+  saveGraphSvg,
+  serializeGraphSvg,
   showEmptyNotice,
   showError,
   zoomBy,
@@ -495,12 +497,12 @@ describe("view toolbar (home / zoom-in / zoom-out)", () => {
   // and the button code paths are guarded no-ops before the first real render
   // (no zoom behavior exists under happy-dom — exactly the pre-render state).
 
-  test("install creates the toolbar with exactly 3 buttons, each with an icon and a tooltip", () => {
+  test("install creates the toolbar with exactly 4 buttons, each with an icon and a tooltip", () => {
     installViewToolbar();
     const bar = _viewToolbarElement();
     expect(bar).not.toBeNull();
     const buttons = bar!.querySelectorAll("button");
-    expect(buttons.length).toBe(3);
+    expect(buttons.length).toBe(4);
     for (const btn of buttons) {
       expect((btn.getAttribute("title") ?? "").length).toBeGreaterThan(0);
       // Each button carries an inline SVG icon that inherits the button color
@@ -515,13 +517,14 @@ describe("view toolbar (home / zoom-in / zoom-out)", () => {
     expect(titles[0]).toContain("0 or r");
     expect(titles[1]).toContain("Zoom in");
     expect(titles[2]).toContain("Zoom out");
+    expect(titles[3]).toContain("Save as SVG");
   });
 
-  test("double install is idempotent — still one toolbar, 3 buttons", () => {
+  test("double install is idempotent — still one toolbar, 4 buttons", () => {
     installViewToolbar();
     installViewToolbar();
     expect(document.querySelectorAll("#ig-view-toolbar").length).toBe(1);
-    expect(_viewToolbarElement()!.querySelectorAll("button").length).toBe(3);
+    expect(_viewToolbarElement()!.querySelectorAll("button").length).toBe(4);
   });
 
   test("clicking every button before any render is a silent no-op (no throw)", () => {
@@ -555,5 +558,41 @@ describe("view toolbar (home / zoom-in / zoom-out)", () => {
       // aria-label mirrors title — the SVG icons are aria-hidden.
       expect(btn.getAttribute("aria-label")).toBe(btn.getAttribute("title"));
     }
+  });
+});
+
+describe("save-as-SVG export (view toolbar)", () => {
+  test("serializeGraphSvg returns null when nothing has rendered", () => {
+    document.body.innerHTML = `<div id="app"></div>`;
+    expect(serializeGraphSvg()).toBeNull();
+  });
+
+  test("export is a clean standalone document: prolog, namespace guard, no ig-* classes", () => {
+    // Active click-highlight AND cursor emphasis put ig-* classes on the live SVG.
+    clickOn(el("g-a").querySelector("ellipse")!);
+    applyCursorEmphasis("c");
+    expect(classesOf("g-a")).toEqual(["ig-selected"]);
+
+    const source = serializeGraphSvg()!;
+    expect(source).not.toBeNull();
+    expect(source.startsWith('<?xml version="1.0" encoding="UTF-8"?>\n')).toBe(true);
+    // FIXTURE_SVG's root deliberately has no xmlns — this exercises the guard.
+    expect(source).toContain('xmlns="http://www.w3.org/2000/svg"');
+    // The drawn content is present; the transient emphasis state is not.
+    expect(source).toContain("<title>a</title>");
+    expect(source).toContain("b-&gt;c");
+    expect(source).not.toContain("ig-");
+    // Graphviz's own classes survive the scrub.
+    expect(source).toContain('class="node"');
+
+    // The clone-based scrub never touches the live SVG.
+    expect(classesOf("g-a")).toEqual(["ig-selected"]);
+    expect(classesOf("g-c")).toContain("ig-cursor");
+  });
+
+  test("saveGraphSvg before any render is a silent no-op (no throw, no anchor)", () => {
+    document.body.innerHTML = `<div id="app"></div>`;
+    expect(() => saveGraphSvg()).not.toThrow();
+    expect(document.querySelector("a[download]")).toBeNull();
   });
 });
