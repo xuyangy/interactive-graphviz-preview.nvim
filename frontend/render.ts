@@ -423,6 +423,140 @@ export function zoomBy(factor: number): void {
   }
 }
 
+// ── Pan-to-cursor (cursor-echo follow, extends Story 6.3) ────────────────────
+// When the Neovim cursor emphasizes a node that is off-screen in a large
+// graph, pan the view so the node lands at the viewport center. Pan-only —
+// the zoom level is untouched — and only when the node is not already fully
+// visible, so the view never chases the cursor while the user works inside
+// the visible region. Manual pans are respected: nothing moves until the NEXT
+// emphasize frame lands on an off-screen node.
+
+const PAN_TRANSITION_MS = 250; // matches RENDER_TRANSITION_MS — one motion voice
+
+/** The subset of DOMRect the pan predicate needs (unit-testable as plain objects). */
+export interface RectLike {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/**
+ * Pure predicate: pan when the node's screen rect is NOT fully inside the
+ * visible-area rect. A degenerate view (zero/negative area — an empty
+ * svg∩window intersection, or a non-layout test DOM where every rect is 0×0)
+ * never pans. A node larger than the view always qualifies; translateTo then
+ * centers it, the best possible framing.
+ */
+export function cursorPanNeeded(node: RectLike, view: RectLike): boolean {
+  if (view.right - view.left <= 0 || view.bottom - view.top <= 0) return false;
+  return (
+    node.left < view.left || node.top < view.top || node.right > view.right || node.bottom > view.bottom
+  );
+}
+
+/** Pure: rect intersection. May come back empty (right<left) — cursorPanNeeded treats that as "never pan". */
+export function intersectRects(a: RectLike, b: RectLike): RectLike {
+  return {
+    left: Math.max(a.left, b.left),
+    top: Math.max(a.top, b.top),
+    right: Math.min(a.right, b.right),
+    bottom: Math.min(a.bottom, b.bottom),
+  };
+}
+
+/**
+ * Pure: map the CENTER of `view` (CSS px, viewport-relative) into the svg's
+ * viewBox coordinate space. Needed because d3-zoom's extent for an svg WITH a
+ * viewBox attribute is the viewBox itself (d3-zoom defaultExtent), so
+ * translateTo's target point `p` must be expressed in viewBox units — while
+ * the visible area is measured in screen px. Null on any degenerate geometry
+ * (caller falls back to translateTo's default target).
+ */
+export function viewCenterInViewBox(
+  view: RectLike,
+  svgRect: RectLike,
+  vb: { x: number; y: number; width: number; height: number },
+): [number, number] | null {
+  const w = svgRect.right - svgRect.left;
+  const h = svgRect.bottom - svgRect.top;
+  if (w <= 0 || h <= 0 || vb.width <= 0 || vb.height <= 0) return null;
+  const fx = ((view.left + view.right) / 2 - svgRect.left) / w;
+  const fy = ((view.top + view.bottom) / 2 - svgRect.top) / h;
+  return [vb.x + fx * vb.width, vb.y + fy * vb.height];
+}
+
+/**
+ * Center the given node group in the VISIBLE area via the live d3-zoom
+ * behavior's public translateTo — pan only, current scale kept.
+ *
+ * "Visible area" is the intersection of the svg's client rect with the
+ * browser window: nothing sizes the rendered svg to the window (no fit/width
+ * option, no CSS), so a large graph's svg element overflows the window and
+ * the svg rect alone is NOT what the user can see (verified in a real
+ * browser — an svg-rect-based pan parked the node off-window).
+ *
+ * Coordinate spaces: the node's getBBox() is in the graph group's user space
+ * — the input space of the zoom transform d3-graphviz manages — and for a
+ * graphviz svg (always carries a viewBox) that space, d3-zoom's extent, and
+ * the viewBox are all the same units, so the screen-px visible center is
+ * mapped through viewCenterInViewBox. Animated through the shared gate
+ * (config ∧ ¬prefers-reduced-motion). No-op before the first render; guarded
+ * like zoomBy so a d3 quirk can never break the emphasize path.
+ */
+function panCursorNodeIntoView(node: Element): void {
+  try {
+    const gv = graphviz("#app");
+    const behavior = gv.zoomBehavior();
+    const selection = gv.zoomSelection();
+    if (!behavior || !selection) return;
+    const svg = selection.node() as SVGSVGElement | null;
+    if (!svg) return;
+    const svgRect = svg.getBoundingClientRect();
+    const winRect: RectLike = {
+      left: 0,
+      top: 0,
+      right: document.documentElement.clientWidth,
+      bottom: document.documentElement.clientHeight,
+    };
+    const view = intersectRects(svgRect, winRect);
+    if (!cursorPanNeeded(node.getBoundingClientRect(), view)) {
+      // The node is already visible: nothing to start, but a PREVIOUS frame's
+      // pan may still be in flight toward a stale target — stop it here.
+      selection.interrupt("ig-pan");
+      return;
+    }
+    const bbox = (node as SVGGraphicsElement).getBBox();
+    const vb = svg.viewBox?.baseVal;
+    const p = vb ? viewCenterInViewBox(view, svgRect, vb) : null;
+    const target = animationsEnabled()
+      ? selection.transition("ig-pan").duration(PAN_TRANSITION_MS).ease(easeCubicInOut)
+      : selection;
+    if (p) {
+      behavior.translateTo(target, bbox.x + bbox.width / 2, bbox.y + bbox.height / 2, p);
+    } else {
+      // No/degenerate viewBox: fall back to the extent centroid (svg center).
+      behavior.translateTo(target, bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
+    }
+  } catch (err) {
+    console.warn("interactive-graphviz: pan-to-cursor failed", err);
+  }
+}
+
+/**
+ * Interrupt an in-flight ig-pan transition without starting a new one. Called
+ * for cursor frames that pan nothing (clear / miss), so a stale pan can never
+ * outlive the cursor state that launched it. No-op before the first render.
+ */
+function cancelCursorPan(): void {
+  try {
+    const selection = graphviz("#app").zoomSelection();
+    if (selection) selection.interrupt("ig-pan");
+  } catch {
+    // No live selection → no transition to cancel; never break the emphasize path.
+  }
+}
+
 /**
  * Serialize the live rendered graph as a standalone SVG document string, or
  * null when nothing has rendered yet. Works on a CLONE — the on-screen SVG is
@@ -869,19 +1003,35 @@ let _cursorEmphasisNode: string | null = null;
  * stored id is re-asserted on the post-render boundary. A nodeId with no
  * matching live node (stale buffer text, not-a-node token) emphasizes nothing
  * — miss ≡ clear, the designed graceful degradation; never an error.
+ *
+ * An emphasized node that is off-screen is panned to the viewport center
+ * (panCursorNodeIntoView). This runs on the post-render re-assert too — a
+ * live reload that reflows the cursor's node out of view re-centers it, which
+ * deliberately outranks preserve_view for that one frame: the user's cursor
+ * IS on that node.
+ *
+ * Last-wins also governs MOTION: a frame that does not itself pan (clear,
+ * miss, node already visible) interrupts any in-flight ig-pan transition, so
+ * the view never keeps gliding toward a node the cursor has already left. A
+ * frame that DOES pan supersedes the old transition implicitly (d3 named
+ * transitions replace each other per element).
  */
 export function applyCursorEmphasis(nodeId: string | null): void {
   _cursorEmphasisNode = typeof nodeId === "string" && nodeId.length > 0 ? nodeId : null;
   const app = document.getElementById("app");
   if (!app) return;
   ensureHighlightStyle();
+  let emphasized: Element | null = null;
   app.querySelectorAll("g.node").forEach((g) => {
     if (_cursorEmphasisNode !== null && groupTitle(g) === _cursorEmphasisNode) {
       g.classList.add("ig-cursor");
+      emphasized = g;
     } else {
       g.classList.remove("ig-cursor");
     }
   });
+  if (emphasized !== null) panCursorNodeIntoView(emphasized);
+  else cancelCursorPan();
 }
 
 /**

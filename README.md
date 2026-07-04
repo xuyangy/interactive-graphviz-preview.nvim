@@ -174,7 +174,9 @@ The preview and the DOT buffer stay linked in both directions:
   preview, debounced by `sync.cursor_debounce_ms`. Moving to a line with no
   node clears the outline. The outline is deliberately quieter than
   click-highlight — it never dims the rest of the graph and never fights an
-  active selection.
+  active selection. In a large graph, if the node is outside the visible
+  area the view pans to center it (zoom level untouched); a node already on
+  screen never moves the view, so panning around by hand is respected.
 
 One caveat, by design: on a click-jump, **OS window focus stays in the
 browser** — the cursor moves, but the plugin never raises or focuses the

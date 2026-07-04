@@ -20,6 +20,9 @@ import {
   assembleInteractiveHtml,
   clearError,
   closeSearch,
+  cursorPanNeeded,
+  intersectRects,
+  viewCenterInViewBox,
   handleHighlightKeydown,
   handleSearchKeydown,
   hasExportMarker,
@@ -543,6 +546,58 @@ describe("view toolbar (home / zoom-in / zoom-out)", () => {
   test("zoomBy without a live zoom behavior does not throw", () => {
     expect(() => zoomBy(1.4)).not.toThrow();
     expect(() => zoomBy(1 / 1.4)).not.toThrow();
+  });
+
+  test("cursorPanNeeded: fully inside is false; crossing any edge is true", () => {
+    const view = { left: 0, top: 0, right: 800, bottom: 600 };
+    expect(cursorPanNeeded({ left: 10, top: 10, right: 50, bottom: 40 }, view)).toBe(false);
+    expect(cursorPanNeeded({ left: -5, top: 10, right: 50, bottom: 40 }, view)).toBe(true);
+    expect(cursorPanNeeded({ left: 10, top: -5, right: 50, bottom: 40 }, view)).toBe(true);
+    expect(cursorPanNeeded({ left: 780, top: 10, right: 810, bottom: 40 }, view)).toBe(true);
+    expect(cursorPanNeeded({ left: 10, top: 590, right: 50, bottom: 610 }, view)).toBe(true);
+    expect(cursorPanNeeded({ left: 900, top: 700, right: 950, bottom: 750 }, view)).toBe(true);
+    // A node larger than the viewport still pans — centering is the best framing.
+    expect(cursorPanNeeded({ left: -100, top: -100, right: 900, bottom: 700 }, view)).toBe(true);
+  });
+
+  test("cursorPanNeeded: degenerate zero-area viewport (non-layout DOM) never pans", () => {
+    const zero = { left: 0, top: 0, right: 0, bottom: 0 };
+    expect(cursorPanNeeded({ left: 0, top: 0, right: 0, bottom: 0 }, zero)).toBe(false);
+    expect(cursorPanNeeded({ left: 5, top: 5, right: 10, bottom: 10 }, zero)).toBe(false);
+  });
+
+  test("intersectRects: svg smaller than window → svg; svg overflowing → window; disjoint → empty", () => {
+    const win = { left: 0, top: 0, right: 1000, bottom: 800 };
+    const small = { left: 100, top: 100, right: 500, bottom: 400 };
+    expect(intersectRects(small, win)).toEqual(small);
+    const huge = { left: 0, top: 0, right: 9000, bottom: 3000 };
+    expect(intersectRects(huge, win)).toEqual(win);
+    const gone = { left: 2000, top: 0, right: 3000, bottom: 100 };
+    const empty = intersectRects(gone, win);
+    expect(empty.right - empty.left).toBeLessThanOrEqual(0);
+    expect(cursorPanNeeded({ left: 0, top: 0, right: 10, bottom: 10 }, empty)).toBe(false);
+  });
+
+  test("viewCenterInViewBox maps the visible center from screen px to viewBox units", () => {
+    // svg drawn at 2× its viewBox scale, offset by (-100, 50) on screen.
+    const svgRect = { left: -100, top: 50, right: 1900, bottom: 1050 };
+    const vb = { x: 0, y: 0, width: 1000, height: 500 };
+    // Visible slice: window center at screen (400, 550) → svg-fraction (0.25, 0.5).
+    const view = { left: -100, top: 50, right: 900, bottom: 1050 };
+    expect(viewCenterInViewBox(view, svgRect, vb)).toEqual([250, 250]);
+    // Degenerate geometry → null (caller falls back to the extent centroid).
+    expect(viewCenterInViewBox(view, { left: 0, top: 0, right: 0, bottom: 0 }, vb)).toBeNull();
+    expect(viewCenterInViewBox(view, svgRect, { x: 0, y: 0, width: 0, height: 0 })).toBeNull();
+  });
+
+  test("cursor emphasis on a matched node without a live zoom behavior does not throw (pan guard)", () => {
+    expect(() => applyCursorEmphasis("a")).not.toThrow();
+    expect(classesOf("g-a")).toEqual(["ig-cursor"]);
+    // Clear and miss frames route through cancelCursorPan (stale-pan interrupt);
+    // both must stay safe with no live zoom selection.
+    expect(() => applyCursorEmphasis(null)).not.toThrow();
+    expect(() => applyCursorEmphasis("no-such-node")).not.toThrow();
+    expect(classesOf("g-a")).toEqual([]);
   });
 
   test("the error overlay clears the toolbar column (right offset > toolbar width)", () => {
