@@ -17,15 +17,20 @@ import {
   _setLastGoodDot,
   _viewToolbarElement,
   applyCursorEmphasis,
+  assembleInteractiveHtml,
   clearError,
   closeSearch,
   handleHighlightKeydown,
   handleSearchKeydown,
+  hasExportMarker,
   installInteractionHandlers,
   installViewToolbar,
+  isStaticExportPage,
   nodeTitleFromClickTarget,
   openSearch,
+  readExportPayload,
   saveGraphSvg,
+  saveInteractiveHtml,
   serializeGraphSvg,
   showEmptyNotice,
   showError,
@@ -497,12 +502,12 @@ describe("view toolbar (home / zoom-in / zoom-out)", () => {
   // and the button code paths are guarded no-ops before the first real render
   // (no zoom behavior exists under happy-dom — exactly the pre-render state).
 
-  test("install creates the toolbar with exactly 4 buttons, each with an icon and a tooltip", () => {
+  test("install creates the toolbar with exactly 5 buttons, each with an icon and a tooltip", () => {
     installViewToolbar();
     const bar = _viewToolbarElement();
     expect(bar).not.toBeNull();
     const buttons = bar!.querySelectorAll("button");
-    expect(buttons.length).toBe(4);
+    expect(buttons.length).toBe(5);
     for (const btn of buttons) {
       expect((btn.getAttribute("title") ?? "").length).toBeGreaterThan(0);
       // Each button carries an inline SVG icon that inherits the button color
@@ -518,13 +523,14 @@ describe("view toolbar (home / zoom-in / zoom-out)", () => {
     expect(titles[1]).toContain("Zoom in");
     expect(titles[2]).toContain("Zoom out");
     expect(titles[3]).toContain("Save as SVG");
+    expect(titles[4]).toContain("interactive HTML");
   });
 
-  test("double install is idempotent — still one toolbar, 4 buttons", () => {
+  test("double install is idempotent — still one toolbar, 5 buttons", () => {
     installViewToolbar();
     installViewToolbar();
     expect(document.querySelectorAll("#ig-view-toolbar").length).toBe(1);
-    expect(_viewToolbarElement()!.querySelectorAll("button").length).toBe(4);
+    expect(_viewToolbarElement()!.querySelectorAll("button").length).toBe(5);
   });
 
   test("clicking every button before any render is a silent no-op (no throw)", () => {
@@ -593,6 +599,94 @@ describe("save-as-SVG export (view toolbar)", () => {
   test("saveGraphSvg before any render is a silent no-op (no throw, no anchor)", () => {
     document.body.innerHTML = `<div id="app"></div>`;
     expect(() => saveGraphSvg()).not.toThrow();
+    expect(document.querySelector("a[download]")).toBeNull();
+  });
+});
+
+describe("save-as-interactive-HTML export (view toolbar)", () => {
+  const PAYLOAD = { dot: "digraph { a -> b }", engine: "dot", search: "?animate=0" };
+
+  afterEach(() => {
+    delete (window as unknown as { __igExport?: unknown }).__igExport;
+  });
+
+  test("assembled document: skeleton, payload before module bundle, app container", () => {
+    const out = assembleInteractiveHtml("console.log(1);", PAYLOAD);
+    expect(out.startsWith("<!doctype html>")).toBe(true);
+    expect(out).toContain('<meta charset="utf-8">');
+    expect(out).toContain('<main id="app"></main>');
+    const payloadAt = out.indexOf("window.__igExport = ");
+    const bundleAt = out.indexOf('<script type="module">console.log(1);</script>');
+    expect(payloadAt).toBeGreaterThan(-1);
+    expect(bundleAt).toBeGreaterThan(payloadAt);
+  });
+
+  test("payload embeds with every `<` escaped, and round-trips through JSON.parse", () => {
+    const hostile = {
+      dot: 'digraph { a [label="</script><script>alert(1)</script> <!-- ü"] }',
+      engine: "neato",
+      search: "?highlight_mode=downstream",
+    };
+    const out = assembleInteractiveHtml("var x = 1;", hostile);
+    const json = out.slice(
+      out.indexOf("window.__igExport = ") + "window.__igExport = ".length,
+      out.indexOf(";</script>"),
+    );
+    // The raw payload text contains no `<` at all — it can never terminate the
+    // script element or open an HTML comment, whatever the DOT contains.
+    expect(json).not.toContain("<");
+    expect(json).toContain("\\u003c");
+    expect(JSON.parse(json)).toEqual(hostile);
+  });
+
+  test("bundle escaping: `</script` in any case is rewritten, case preserved, nothing else touched", () => {
+    const bundle = 'var a = "</script>"; var b = "</SCRIPT>"; var c = "<script>";';
+    const out = assembleInteractiveHtml(bundle, PAYLOAD);
+    expect(out).toContain('var a = "<\\/script>";');
+    expect(out).toContain('var b = "<\\/SCRIPT>";');
+    // An OPENING <script in a string is harmless and must pass through untouched.
+    expect(out).toContain('var c = "<script>";');
+    // The only raw terminators left are the assembled document's two real ones.
+    expect(out.match(/<\/script/gi)!.length).toBe(2);
+  });
+
+  test("readExportPayload validates: garbage shapes are null, minimal payload gets defaults", () => {
+    const w = window as unknown as { __igExport?: unknown };
+    expect(readExportPayload()).toBeNull();
+    for (const garbage of [null, "digraph {}", 42, { engine: "dot" }, { dot: 7 }]) {
+      w.__igExport = garbage;
+      expect(readExportPayload()).toBeNull();
+    }
+    w.__igExport = { dot: "digraph {}" };
+    expect(readExportPayload()).toEqual({ dot: "digraph {}", engine: "dot", search: "" });
+    expect(isStaticExportPage()).toBe(true);
+  });
+
+  test("hasExportMarker: true for a present-but-corrupt payload, false with none", () => {
+    const w = window as unknown as { __igExport?: unknown };
+    expect(hasExportMarker()).toBe(false); // live preview: no marker at all
+    w.__igExport = "digraph {}"; // marker present but malformed
+    expect(hasExportMarker()).toBe(true);
+    expect(readExportPayload()).toBeNull();
+    // This pair (marker present, payload null) is what main.ts maps to the
+    // corrupt-export error branch instead of the live WebSocket boot.
+  });
+
+  test("an exported page's toolbar omits the save-as-HTML button (4 buttons)", () => {
+    (window as unknown as { __igExport?: unknown }).__igExport = PAYLOAD;
+    installViewToolbar();
+    const titles = [..._viewToolbarElement()!.querySelectorAll("button")].map(
+      (b) => b.getAttribute("title") ?? "",
+    );
+    expect(titles.length).toBe(4);
+    expect(titles.some((t) => t.includes("interactive HTML"))).toBe(false);
+    // The SVG export stays available inside an exported page.
+    expect(titles.some((t) => t.includes("Save as SVG"))).toBe(true);
+  });
+
+  test("saveInteractiveHtml before any render is a silent no-op (no throw, no anchor)", async () => {
+    document.body.innerHTML = `<div id="app"></div>`;
+    await expect(saveInteractiveHtml()).resolves.toBeUndefined();
     expect(document.querySelector("a[download]")).toBeNull();
   });
 });

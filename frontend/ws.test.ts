@@ -151,6 +151,23 @@ describe("sendNodeClick (Story 6.2)", () => {
   });
 });
 
+describe("hostless page (file://) guard", () => {
+  test("empty location.host: inert client, NO WebSocket constructed, no throw", async () => {
+    // A truncated exported graph.html can lose its payload script entirely, so
+    // main.ts sees no export marker and boots the live path from file:// —
+    // where host is "" and `new WebSocket("ws:///")` would throw synchronously.
+    g.window = { location: { protocol: "file:", host: "", search: "" } };
+    const { createWebSocketClient } = await import("./ws");
+
+    const client = createWebSocketClient();
+
+    expect(FakeWebSocket.instances).toEqual([]);
+    expect(client.connected).toBe(false);
+    expect(() => client.close()).not.toThrow();
+    expect(client.sendNodeClick("a")).toBe(false);
+  });
+});
+
 describe("inbound emphasize dispatch (Story 6.3)", () => {
   test("emphasize frames reach onEmphasize (string and null nodeId); junk stays ignored", async () => {
     const { createWebSocketClient } = await import("./ws");

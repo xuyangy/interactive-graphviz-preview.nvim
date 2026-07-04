@@ -43,6 +43,7 @@ import {
   shouldOpenSearch,
   type SearchOpts,
 } from "./search";
+import { filterConfigSearch } from "./urlconfig";
 
 // ── Animation gate (Story 5.4, AC1/AC4/AC5) ──────────────────────────────────
 // render.ts is the only module that touches the live SVG + `matchMedia`, so it
@@ -393,6 +394,14 @@ const ICON_DOWNLOAD =
   '<path fill="currentColor" d="M157.64,380h280L297.64,520Z"/>' +
   '<path fill="none" stroke="currentColor" stroke-width="60" stroke-linecap="round" d="M97.64,560v70a40,40,0,0,0,40,40h320a40,40,0,0,0,40-40v-70"/>' +
   "</svg>";
+// Hand-drawn in the same coordinate scale/stroke weight as the icons above:
+// a document outline holding <> code brackets (the interactive-HTML export).
+const ICON_HTML_EXPORT =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 100 595.28 640" width="16" height="16" aria-hidden="true">' +
+  '<rect fill="none" stroke="currentColor" stroke-width="50" x="117.64" y="170" width="360" height="460" rx="40" ry="40"/>' +
+  '<path fill="none" stroke="currentColor" stroke-width="50" stroke-linecap="round" stroke-linejoin="round" d="M257.64,320 187.64,400 257.64,480"/>' +
+  '<path fill="none" stroke="currentColor" stroke-width="50" stroke-linecap="round" stroke-linejoin="round" d="M337.64,320 407.64,400 337.64,480"/>' +
+  "</svg>";
 
 /**
  * Scale the view about its current center by `factor` (>1 zooms in, <1 out)
@@ -471,6 +480,153 @@ export function saveGraphSvg(): void {
   }
 }
 
+// ── Save as interactive HTML (single-file export) ─────────────────────────────
+// The preview build is fully self-contained — one JS bundle, every stylesheet
+// JS-injected — so a standalone interactive export is just: the trivial page
+// skeleton + an embedded {dot, engine, search} payload + the bundle inlined.
+// On load, main.ts sees the payload ("static export mode"), re-renders the
+// graph through the bundled WASM engine, and never opens a WebSocket — zoom,
+// highlight, search and the SVG export keep working offline because they ARE
+// the same code. Neovim-coupled features (jump-on-click, cursor echo) are
+// inert by construction: no sender is ever registered and no emphasize frames
+// arrive.
+
+/** The payload an exported page boots from (`window.__igExport`). */
+export interface ExportPayload {
+  /** The DOT source to render — the preview's lastGoodDot at export time. */
+  dot: string;
+  /** Layout engine; defaults to "dot" when absent/invalid in the payload. */
+  engine: string;
+  /**
+   * The preview URL's query string at export time — filtered down to the
+   * interactivity config params only (filterConfigSearch), so the exported
+   * page re-applies the SAME setup() config through the existing
+   * applyUrlConfig path while the live session's sessionId/token never
+   * enter the file.
+   */
+  search: string;
+}
+
+/**
+ * Read and validate `window.__igExport`. Returns null unless `dot` is a
+ * string (the one load-bearing field); engine/search fall back to safe
+ * defaults so a hand-edited payload degrades instead of throwing. On null,
+ * main.ts consults hasExportMarker() to tell a corrupt export (fail inert)
+ * apart from a normal live preview (WebSocket boot).
+ */
+export function readExportPayload(): ExportPayload | null {
+  if (typeof window === "undefined") return null;
+  const raw = (window as unknown as { __igExport?: unknown }).__igExport;
+  if (typeof raw !== "object" || raw === null) return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.dot !== "string") return null;
+  return {
+    dot: o.dot,
+    engine: typeof o.engine === "string" && o.engine.length > 0 ? o.engine : "dot",
+    search: typeof o.search === "string" ? o.search : "",
+  };
+}
+
+/** True when this page IS an exported file (booted from an embedded payload). */
+export function isStaticExportPage(): boolean {
+  return readExportPayload() !== null;
+}
+
+/**
+ * True when a `window.__igExport` marker is present at all — even one too
+ * malformed for readExportPayload() to accept. main.ts uses this to keep a
+ * corrupt exported file from falling through to the live WebSocket boot:
+ * under file:// `location.host` is empty, so the WebSocket constructor would
+ * throw synchronously and take the page down instead of failing inert.
+ */
+export function hasExportMarker(): boolean {
+  if (typeof window === "undefined") return false;
+  return (window as unknown as { __igExport?: unknown }).__igExport !== undefined;
+}
+
+/**
+ * Assemble the standalone interactive HTML document. Pure string assembly —
+ * no DOM, no fetch — so it is unit-testable; saveInteractiveHtml is the
+ * DOM/fetch wrapper (mirroring the serializeGraphSvg/saveGraphSvg split).
+ *
+ * Escaping is the correctness-critical part (the HTML parser scans raw script
+ * content for terminators):
+ *  - the JSON payload embeds with EVERY `<` escaped as `<` — a JS string
+ *    escape, so the parsed value is byte-identical while `</script>`/`<!--`
+ *    can never appear in the raw text;
+ *  - the bundle is arbitrary JS code, so only the terminator sequence is
+ *    rewritten: `</script` → `<\/script` (case preserved via capture). That
+ *    sequence can only occur inside JS strings/regex/comments, where `\/`
+ *    means `/` — the standard inline-bundle escape.
+ *
+ * The skeleton mirrors frontend/index.html (charset/viewport + `<main
+ * id="app">`); the payload rides a classic script that runs before the
+ * inlined `type="module"` bundle (modules are deferred, classics are not, so
+ * the ordering holds regardless).
+ */
+export function assembleInteractiveHtml(bundleSource: string, payload: ExportPayload): string {
+  const payloadJs = JSON.stringify(payload).replace(/</g, "\\u003c");
+  const inlineBundle = bundleSource.replace(/<\/(script)/gi, "<\\/$1");
+  return (
+    "<!doctype html>\n" +
+    '<html lang="en">\n' +
+    "  <head>\n" +
+    '    <meta charset="utf-8">\n' +
+    '    <meta name="viewport" content="width=device-width, initial-scale=1">\n' +
+    "    <title>graph — interactive-graphviz export</title>\n" +
+    "  </head>\n" +
+    "  <body>\n" +
+    '    <main id="app"></main>\n' +
+    `    <script>window.__igExport = ${payloadJs};</script>\n` +
+    `    <script type="module">${inlineBundle}</script>\n` +
+    "  </body>\n" +
+    "</html>\n"
+  );
+}
+
+/**
+ * Download the current graph as a self-contained interactive `graph.html`.
+ * Embeds the last GOOD dot (exactly what the stash holds — an error overlay
+ * on screen does not change what exports) plus the page's own bundle, fetched
+ * via its <script src>. Silent no-op before the first successful render or
+ * when no external bundle script exists (i.e. inside an exported page, where
+ * the button is hidden anyway); guarded so a fetch/Blob quirk can never take
+ * the preview down.
+ */
+export async function saveInteractiveHtml(): Promise<void> {
+  try {
+    if (lastGoodDot === null) return;
+    const payload: ExportPayload = {
+      dot: lastGoodDot,
+      engine: lastGoodEngine,
+      // Whitelist-filtered: config params only. The raw location.search also
+      // carries sessionId + the per-session auth token, which must never be
+      // written into a shareable file.
+      search: filterConfigSearch(window.location.search),
+    };
+    const bundleScript = document.querySelector<HTMLScriptElement>("script[src]");
+    if (!bundleScript) return;
+    const resp = await fetch(bundleScript.src);
+    if (!resp.ok) {
+      console.warn("interactive-graphviz: bundle fetch failed", resp.status);
+      return;
+    }
+    const html = assembleInteractiveHtml(await resp.text(), payload);
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "graph.html";
+    // Firefox needs the anchor in the document for a synthetic click.
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.warn("interactive-graphviz: saveInteractiveHtml failed", err);
+  }
+}
+
 /**
  * Install the fixed view toolbar at the top-right: home (reset to fit),
  * zoom in, zoom out. Idempotent via DOM id guard (not a module flag) so it
@@ -517,6 +673,13 @@ export function installViewToolbar(): void {
     zoomBy(1 / ZOOM_BUTTON_FACTOR),
   );
   addButton(ICON_DOWNLOAD, "Save as SVG (as currently rendered)", () => saveGraphSvg());
+  // Hidden inside an exported page: the bundle is inline there, not
+  // re-fetchable, so a nested export is impossible by construction.
+  if (!isStaticExportPage()) {
+    addButton(ICON_HTML_EXPORT, "Save as interactive HTML (self-contained)", () => {
+      void saveInteractiveHtml();
+    });
+  }
 
   document.body.appendChild(bar);
 }

@@ -58,7 +58,13 @@ Browser view controls ~
     and +/- magnifier icons to zoom, plus a download icon that saves the
     graph as `graph.svg` — exported as currently rendered (zoom/pan
     included; reset the view first for the full graph), with any transient
-    click/cursor emphasis stripped. See the README for the full gesture
+    click/cursor emphasis stripped. A fifth icon saves a self-contained
+    interactive `graph.html` (~1 MB): it opens offline and keeps zoom/pan,
+    click-highlight, `/` search and the SVG export working, re-rendering
+    the graph fresh when opened. Neovim-linked features (jump-on-click,
+    cursor echo, live reload) are inert in the exported file, and the file
+    is safe to share: it carries the interactivity config but never the
+    preview session's auth token. See the README for the full gesture
     table.
 
                                           *interactive-graphviz-preserve_view*

@@ -43,6 +43,12 @@ function wsUrl(): string {
  * Open a live WebSocket to the server, authenticate with `hello{sessionId,token}`
  * on open, and dispatch inbound envelopes by `type` to the provided handlers.
  * The envelope is never redefined here — types come from `frontend/protocol.ts`.
+ *
+ * When the page has no host (a file opened from disk, e.g. an exported
+ * graph.html so truncated that its payload script vanished and main.ts saw no
+ * export marker), returns a permanently-inert client without constructing a
+ * socket: `new WebSocket("ws:///")` would throw synchronously and take the
+ * page down.
  */
 export function createWebSocketClient(handlers: WebSocketClientHandlers = {}): WebSocketClient {
   const client: WebSocketClient = {
@@ -50,6 +56,7 @@ export function createWebSocketClient(handlers: WebSocketClientHandlers = {}): W
     close: () => {},
     sendNodeClick: () => false,
   };
+  if (window.location.host === "") return client;
   const { sessionId, token } = readConnectParams();
 
   const socket = new WebSocket(wsUrl());

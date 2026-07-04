@@ -91,6 +91,7 @@ The preview is interactive — navigate large graphs without leaving Neovim:
 | `0` or `r` | Reset the view to fit the viewport |
 | Toolbar (top-right) | Click the home icon to reset the view, the +/- magnifiers to zoom — button equivalents of the gestures above |
 | Toolbar download button | Save the graph as `graph.svg` — exported as currently rendered (including zoom/pan; press `0` first for the full graph), with any click/cursor emphasis stripped |
+| Toolbar HTML-export button | Save a self-contained interactive `graph.html` (~1 MB) — opens offline with zoom/pan, click-highlight, `/` search, and the SVG export all working. Re-renders the graph fresh when opened; Neovim-linked features (jump-on-click, cursor echo) are inert. Safe to share: the file carries your interactivity config but never the preview session's auth token |
 | Click a node | Highlight it and its neighbors; dim the rest. Also moves the Neovim cursor to the node's source line (when `sync.jump_on_click`) |
 | Shift + click | Add another node to the highlight (multi-select) |
 | Alt + click | Also highlight the whole cluster the node lives in |

@@ -46,6 +46,42 @@ export interface UrlConfig {
   syncJumpOnClick?: boolean;
 }
 
+/**
+ * The 7 config param names — exactly the set parseUrlConfig reads. The
+ * Lua↔TS contract test (urlparam-contract.test.ts) pins the same set on both
+ * sides of the boundary, so a drift between this list and parseUrlConfig's
+ * literal `params.get(...)` calls fails that test.
+ */
+const CONFIG_PARAM_KEYS = [
+  "preserve_view",
+  "highlight_mode",
+  "animate",
+  "search_scope",
+  "search_case",
+  "search_regex",
+  "sync_jump_on_click",
+] as const;
+
+/**
+ * Reduce a preview query string to ONLY the interactivity config params.
+ * Whitelist, not blacklist: runtime credentials (`sessionId`, `token`) and
+ * anything unknown are dropped. Used at export time (saveInteractiveHtml) —
+ * an exported graph.html must carry the config that shaped the preview but
+ * never the live session's auth token, which would otherwise leak in a
+ * shareable file. Returns "" when no config params are present, else a
+ * "?"-prefixed string.
+ */
+export function filterConfigSearch(search: string): string {
+  const params = new URLSearchParams(search);
+  const kept = new URLSearchParams();
+  for (const key of CONFIG_PARAM_KEYS) {
+    const value = params.get(key);
+    if (value !== null) kept.set(key, value);
+  }
+  const out = kept.toString();
+  return out.length > 0 ? `?${out}` : "";
+}
+
 /** Map exactly "1"/"0" to true/false; absent or garbage → undefined (no call). */
 function parseBoolParam(value: string | null): boolean | undefined {
   if (value === "1") return true;

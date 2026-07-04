@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { applyUrlConfig, parseUrlConfig } from "./urlconfig";
+import { applyUrlConfig, filterConfigSearch, parseUrlConfig } from "./urlconfig";
 import { getPreserveView, setPreserveView } from "./viewstate";
 import { _resetHighlightMode, getHighlightMode } from "./interact";
 import { _resetSearchConfig, getSearchConfig } from "./search";
@@ -127,5 +127,38 @@ describe("applyUrlConfig (feeds the clamping setters)", () => {
   test("partial search config keeps defaults for unset subfields", () => {
     applyUrlConfig("?search_case=1");
     expect(getSearchConfig()).toEqual({ caseSensitive: true, regex: false, scope: "both" });
+  });
+});
+
+describe("filterConfigSearch (export-time credential stripping)", () => {
+  test("drops sessionId/token, keeps every config param (values intact)", () => {
+    const out = filterConfigSearch(
+      "?sessionId=3&token=tok-secret&preserve_view=0&highlight_mode=upstream&animate=0" +
+        "&search_scope=nodes&search_case=1&search_regex=1&sync_jump_on_click=0",
+    );
+    expect(out).not.toContain("token");
+    expect(out).not.toContain("sessionId");
+    expect(out).not.toContain("tok-secret");
+    // Round-trip: the filtered string parses to the identical config.
+    expect(parseUrlConfig(out)).toEqual({
+      preserveView: false,
+      highlightMode: "upstream",
+      animate: false,
+      search: { scope: "nodes", caseSensitive: true, regex: true },
+      syncJumpOnClick: false,
+    });
+  });
+
+  test("credentials-only or empty search filters to the empty string", () => {
+    expect(filterConfigSearch("?sessionId=3&token=tok-abc")).toBe("");
+    expect(filterConfigSearch("")).toBe("");
+  });
+
+  test("unknown params are dropped (whitelist, not blacklist)", () => {
+    expect(filterConfigSearch("?future_secret=x&animate=1")).toBe("?animate=1");
+  });
+
+  test("never throws on a malformed query string", () => {
+    expect(() => filterConfigSearch("?&&==&%%%&token")).not.toThrow();
   });
 });
