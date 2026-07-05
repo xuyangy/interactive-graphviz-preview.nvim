@@ -23,7 +23,6 @@ import {
 } from "./viewstate";
 import {
   Selection,
-  buildModelFromTitles,
   computeClusterHighlightSet,
   computeHighlightSet,
   emptyHighlightSet,
@@ -45,6 +44,14 @@ import {
   type SearchOpts,
 } from "./search";
 import { clearError, showError } from "./overlays";
+import {
+  appElement,
+  edgeGroups,
+  extractModelFromApp,
+  groupTitle,
+  nodeGroups,
+  nodeTitleFromClickTarget,
+} from "./graph-dom";
 
 // ── Animation gate (Story 5.4, AC1/AC4/AC5) ──────────────────────────────────
 // render.ts is the only module that touches the live SVG + `matchMedia`, so it
@@ -433,12 +440,11 @@ function cancelCursorPan(): void {
 // toolbar in toolbar.ts (plan item #1a extraction) — neither touches d3.
 
 // ── Click-to-highlight neighbors (Story 5.2) ─────────────────────────────────
-// render.ts is the only module that touches the live SVG, so it owns the DOM
-// bridge for the pure highlight model in interact.ts (mirroring the viewstate
-// bridge). The highlight MATH and selection state machine are pure + unit-tested
-// in interact.ts; here we (1) extract the graph model from the live SVG <title>
-// elements (robust: mirrors what is actually drawn), (2) apply CSS classes for
-// Selected / Neighbor / Dimmed emphasis, and (3) wire delegated click + Esc.
+// The highlight MATH and selection state machine are pure + unit-tested in
+// interact.ts; SVG reads (model extraction, group scans, title lookup) go
+// through graph-dom.ts (plan item #8a). Here we (1) orchestrate extraction →
+// math → DOM, (2) apply CSS classes for Selected / Neighbor / Dimmed emphasis
+// (the class WRITES stay with their owner), and (3) wire delegated click + Esc.
 //
 // Highlight is a cheap class/opacity toggle on existing SVG groups — no
 // re-render (NFR-7). Animation/transition polish is Story 5.4's scope.
@@ -553,32 +559,8 @@ function ensureHighlightStyle(): void {
   document.head.appendChild(style);
 }
 
-/** Read the textContent of the first <title> child of an SVG group, trimmed. */
-function groupTitle(group: Element): string {
-  // The <title> is a direct child; querySelector(":scope > title") keeps us from
-  // grabbing a descendant edge/node title in nested structures.
-  const t = group.querySelector(":scope > title") ?? group.querySelector("title");
-  return (t?.textContent ?? "").trim();
-}
-
-/**
- * Build the pure graph model from the LIVE SVG <title> elements. Graphviz emits
- * each node as <g class="node"><title>NAME</title>…>, each edge as
- * <g class="edge"><title>A-&gt;B</title>…> (A--B undirected), each cluster as
- * <g class="cluster"><title>cluster_NAME</title>…>. This is the chosen
- * extraction source (robust, mirrors what is drawn); the math stays pure.
- */
-function extractModelFromApp(): GraphModel {
-  const app = document.getElementById("app");
-  if (!app) return buildModelFromTitles({ nodeTitles: [], edgeTitles: [] });
-  const nodeTitles: string[] = [];
-  const edgeTitles: string[] = [];
-  const clusterTitles: string[] = [];
-  app.querySelectorAll("g.node").forEach((g) => nodeTitles.push(groupTitle(g)));
-  app.querySelectorAll("g.edge").forEach((g) => edgeTitles.push(groupTitle(g)));
-  app.querySelectorAll("g.cluster").forEach((g) => clusterTitles.push(groupTitle(g)));
-  return buildModelFromTitles({ nodeTitles, edgeTitles, clusterTitles });
-}
+// groupTitle / extractModelFromApp / the g.node-g.edge scans live in
+// graph-dom.ts (plan item #8a extraction) — the single SVG-reading bridge.
 
 /**
  * Apply a computed HighlightSet onto the live SVG: selected nodes get the
@@ -587,12 +569,11 @@ function extractModelFromApp(): GraphModel {
  * returns every element to full opacity (no dimming) — the cleared state.
  */
 function applyHighlightToDom(set: HighlightSet): void {
-  const app = document.getElementById("app");
-  if (!app) return;
+  if (appElement() === null) return;
   ensureHighlightStyle();
 
   const anySelected = set.selected.size > 0;
-  app.querySelectorAll("g.node").forEach((g) => {
+  nodeGroups().forEach((g) => {
     const name = groupTitle(g);
     g.classList.remove("ig-selected", "ig-neighbor", "ig-dimmed");
     if (!anySelected) return; // cleared state: no classes, full opacity
@@ -600,7 +581,7 @@ function applyHighlightToDom(set: HighlightSet): void {
     else if (set.nodes.has(name)) g.classList.add("ig-neighbor");
     else g.classList.add("ig-dimmed");
   });
-  app.querySelectorAll("g.edge").forEach((g) => {
+  edgeGroups().forEach((g) => {
     const title = groupTitle(g);
     g.classList.remove("ig-neighbor", "ig-dimmed");
     if (!anySelected) return;
@@ -645,13 +626,12 @@ let _cursorEmphasisNode: string | null = null;
  */
 export function applyCursorEmphasis(nodeId: string | null): void {
   _cursorEmphasisNode = typeof nodeId === "string" && nodeId.length > 0 ? nodeId : null;
-  const app = document.getElementById("app");
-  if (!app) return;
+  if (appElement() === null) return;
   ensureHighlightStyle();
   const key = _cursorEmphasisNode;
   // Edge pass first: it decides which endpoint nodes the node pass includes.
   let emphasizedEdge: Element | null = null;
-  app.querySelectorAll("g.edge").forEach((g) => {
+  edgeGroups().forEach((g) => {
     if (key !== null && groupTitle(g) === key) {
       g.classList.add("ig-cursor");
       if (emphasizedEdge === null) emphasizedEdge = g; // multi-edges: all lit, first pans
@@ -663,7 +643,7 @@ export function applyCursorEmphasis(nodeId: string | null): void {
   // edge but matches nothing must not light stray same-named nodes.
   const ends = emphasizedEdge !== null && key !== null ? parseEdgeTitle(key) : null;
   let emphasizedNode: Element | null = null;
-  app.querySelectorAll("g.node").forEach((g) => {
+  nodeGroups().forEach((g) => {
     const title = groupTitle(g);
     const hit =
       key !== null && (title === key || (ends !== null && (title === ends.from || title === ends.to)));
@@ -737,22 +717,7 @@ function reapplyHighlightAfterRender(): void {
   recomputeAndApplyHighlight();
 }
 
-/**
- * Pure predicate: does this click target a node group? Returns the node title or
- * null (background / empty-canvas click). Walks up from the event target to the
- * nearest g.node within #app (event delegation), so it survives re-renders.
- */
-export function nodeTitleFromClickTarget(target: EventTarget | null): string | null {
-  let el = target as Element | null;
-  const app = document.getElementById("app");
-  while (el && el !== app && el !== document.body) {
-    if (el instanceof Element && el.classList?.contains("node") && el.tagName === "g") {
-      return groupTitle(el);
-    }
-    el = el.parentElement;
-  }
-  return null;
-}
+// nodeTitleFromClickTarget lives in graph-dom.ts (plan item #8a extraction).
 
 /** Handle a click on #app: node click selects/extends; background click clears. */
 export function handleAppClick(e: MouseEvent): void {
@@ -792,7 +757,7 @@ export function handleHighlightKeydown(e: KeyboardEvent): boolean {
 let _clickBound: Element | null = null;
 let _highlightKeyInstalled = false;
 export function installInteractionHandlers(): void {
-  const app = document.getElementById("app");
+  const app = appElement();
   if (app && _clickBound !== app) {
     // #app is stable across renders (d3-graphviz rebuilds its CHILDREN, not the
     // container), so the delegated listener normally binds once. Re-checking the

@@ -21,10 +21,10 @@ import {
   handleHighlightKeydown,
   handleSearchKeydown,
   installInteractionHandlers,
-  nodeTitleFromClickTarget,
   openSearch,
   zoomBy,
 } from "./render";
+import { nodeTitleFromClickTarget } from "./graph-dom";
 import {
   _disconnectNoticeElement,
   _emptyNoticeElement,
