@@ -104,6 +104,11 @@ When `preserve_view = true` (the default), your current zoom/pan is kept across
 live-reload re-renders, so editing the buffer no longer snaps you back to the
 top of the graph. Set `preserve_view = false` to reset to fit on every reload.
 
+If the connection to Neovim drops (server restart, network blip), the preview
+shows "Disconnected — reconnecting…" and reconnects automatically. A tab whose
+session can no longer be resumed (its server is gone for good) says "Session
+expired — reopen the preview from Neovim" instead of retrying forever.
+
 ### Highlighting neighbors
 
 Click any node to trace its relationships: the clicked node and its neighbors
@@ -279,9 +284,11 @@ the fallback), and localhost port-bind capability.
 
 ## Non-goals
 
-Auto-open on filetype, image/SVG export, layout engines beyond `dot`/`neato`,
-editing the buffer from the preview, and raising/focusing windows across the
-editor↔browser boundary are intentionally out of scope.
+Auto-open on filetype, raster image (PNG) export, layout engines beyond
+`dot`/`neato`, editing the buffer from the preview, and raising/focusing
+windows across the editor↔browser boundary are intentionally out of scope.
+(SVG download and interactive-HTML export shipped in v0.5.0 — see the view
+toolbar.)
 
 ## License
 
