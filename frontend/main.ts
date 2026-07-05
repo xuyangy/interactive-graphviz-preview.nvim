@@ -2,19 +2,20 @@ import type { ProtocolMessage } from "./protocol";
 import { createWebSocketClient } from "./ws";
 import {
   queueRender,
-  showError,
-  showEmptyNotice,
-  clearEmptyNotice,
   installResetKeybinding,
   installInteractionHandlers,
   installSearchHandlers,
-  installViewToolbar,
   applyCursorEmphasis,
-  readExportPayload,
-  hasExportMarker,
+} from "./render";
+import {
+  showError,
+  showEmptyNotice,
+  clearEmptyNotice,
   showDisconnectNotice,
   clearDisconnectNotice,
-} from "./render";
+} from "./overlays";
+import { installViewToolbar } from "./toolbar";
+import { readExportPayload, hasExportMarker } from "./export";
 import { isBlankDot } from "./dot";
 import { setNodeClickSender } from "./sync";
 import { applyUrlConfig } from "./urlconfig";
@@ -72,9 +73,9 @@ installSearchHandlers();
 
 // View toolbar — clickable home / zoom-in / zoom-out at the top-right for
 // users who prefer buttons over gestures. Each button wraps the same code path
-// as its gesture twin (`0`/`r` reset, scroll/double-click zoom); the handlers
-// live in render.ts so the d3 import stays there. In static export mode the
-// save-as-HTML button is omitted (render.ts gates it); the rest work as-is.
+// as its gesture twin (`0`/`r` reset, scroll/double-click zoom); toolbar.ts
+// calls into render.ts's zoom handlers so the d3 import stays there. In static
+// export mode the save-as-HTML button is omitted (toolbar.ts gates it).
 installViewToolbar();
 
 if (exportPayload !== null) {

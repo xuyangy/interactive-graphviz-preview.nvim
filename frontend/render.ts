@@ -44,7 +44,7 @@ import {
   shouldOpenSearch,
   type SearchOpts,
 } from "./search";
-import { filterConfigSearch } from "./urlconfig";
+import { clearError, showError } from "./overlays";
 
 // ── Animation gate (Story 5.4, AC1/AC4/AC5) ──────────────────────────────────
 // render.ts is the only module that touches the live SVG + `matchMedia`, so it
@@ -206,134 +206,23 @@ async function renderDotWithFallback(dot: string, engine: string): Promise<void>
   reapplyHighlightAfterRender();
 }
 
-// ── Error overlay ───────────────────────────────────────────────────────────
-
-function extractMessage(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  return raw.length > 200 ? raw.slice(0, 200) + "…" : raw;
-}
+// The error / empty / disconnect overlays live in overlays.ts (plan item #1a
+// extraction); render.ts consumes showError/clearError at the queue boundary.
 
 /**
- * Show a non-blocking error overlay at top-right.
- * Idempotent: if the overlay already exists, updates its text.
+ * The last successfully rendered DOT + engine, for modules that must export
+ * exactly what is on screen (export.ts's saveInteractiveHtml). Read-only
+ * accessor: the state itself is only ever set on renderDotWithFallback's
+ * success boundary.
  */
-export function showError(err: unknown, v: number): void {
-  // When err is already a plain string (e.g. from a server-side error_display
-  // message), use it as-is without the "DOT parse error" prefix. Error objects
-  // and other unknowns are formatted with the "DOT parse error" prefix since
-  // they always originate from the WASM renderer.
-  // An error supersedes the empty-buffer notice — they are mutually exclusive
-  // informational surfaces, never shown together.
-  clearEmptyNotice();
-  const msg = extractMessage(err);
-  const text = typeof err === "string" ? `Error (v${v}): ${msg}` : `DOT parse error (v${v}): ${msg}`;
-  let overlay = document.getElementById("ig-error-overlay");
-  if (!overlay) {
-    overlay = document.createElement("div");
-    overlay.id = "ig-error-overlay";
-    // Offset right by the toolbar clearance (not 8px) so the overlay never
-    // covers the view toolbar's buttons (installViewToolbar).
-    overlay.style.cssText =
-      `position:fixed;top:8px;right:${VIEW_TOOLBAR_CLEARANCE_PX}px;background:rgba(30,0,0,0.85);` +
-      "color:#ff8080;padding:6px 10px;border-radius:4px;font-size:13px;" +
-      "font-family:monospace;z-index:9999;pointer-events:none;max-width:50vw;word-break:break-all;";
-    document.body.appendChild(overlay);
-  }
-  overlay.textContent = text;
-}
-
-/**
- * Clear the error overlay if present. _v is accepted for future correlation.
- */
-export function clearError(_v: number): void {
-  const overlay = document.getElementById("ig-error-overlay");
-  if (overlay) {
-    overlay.parentNode?.removeChild(overlay);
-  }
-}
-
-// ── Empty-buffer notice ───────────────────────────────────────────────────────
-// Informational (NOT an error): the DOT buffer is empty/whitespace, so there is
-// nothing to render. Non-blocking, top-left, visually distinct from the red error
-// overlay. It never touches #app, so a previously rendered good graph stays on
-// screen; on an initial empty buffer #app is empty anyway and this tells the user
-// why. Cleared as soon as a real (non-blank) render is dispatched.
-export function showEmptyNotice(v: number): void {
-  // The empty-buffer state is informational, not an error — clear any error
-  // overlay so the two are never shown together.
-  clearError(v);
-  let el = document.getElementById("ig-empty-notice");
-  if (!el) {
-    el = document.createElement("div");
-    el.id = "ig-empty-notice";
-    el.style.cssText =
-      "position:fixed;top:8px;left:8px;background:rgba(40,40,40,0.85);" +
-      "color:#cccccc;padding:6px 10px;border-radius:4px;font-size:13px;" +
-      "font-family:monospace;z-index:9999;pointer-events:none;max-width:50vw;";
-    document.body.appendChild(el);
-  }
-  el.textContent = `Buffer is empty — nothing to render (v${v})`;
-}
-
-/** Remove the empty-buffer notice if present. */
-export function clearEmptyNotice(): void {
-  const el = document.getElementById("ig-empty-notice");
-  if (el) {
-    el.parentNode?.removeChild(el);
-  }
-}
-
-// ── Disconnect notice ─────────────────────────────────────────────────────────
-// Connection state (NOT content state): the live WebSocket to the server has
-// dropped, so edits in Neovim no longer reach the preview and whatever graph is
-// on screen is going stale. It is orthogonal to the error (red, top-right) and
-// empty (grey, top-left) surfaces — a valid-but-stale graph can stay visible
-// while disconnected — so it lives top-center and neither clears nor is cleared
-// by them. main.ts shows it on socket close and clears it on the next
-// successful open; ws.ts auto-reconnects with backoff so it self-heals — except
-// on auth rejection (stale token), where main.ts passes a terminal message
-// telling the user to reopen the preview instead.
-export function showDisconnectNotice(message = "Disconnected — reconnecting…"): void {
-  let el = document.getElementById("ig-disconnect-notice");
-  if (!el) {
-    el = document.createElement("div");
-    el.id = "ig-disconnect-notice";
-    el.style.cssText =
-      "position:fixed;top:8px;left:50%;transform:translateX(-50%);" +
-      "background:rgba(60,45,0,0.9);color:#ffcc66;padding:6px 10px;border-radius:4px;" +
-      "font-size:13px;font-family:monospace;z-index:9999;pointer-events:none;max-width:60vw;";
-    document.body.appendChild(el);
-  }
-  el.textContent = message;
-}
-
-/** Remove the disconnect notice if present. */
-export function clearDisconnectNotice(): void {
-  const el = document.getElementById("ig-disconnect-notice");
-  if (el) {
-    el.parentNode?.removeChild(el);
-  }
+export function lastGoodRenderState(): { dot: string | null; engine: string } {
+  return { dot: lastGoodDot, engine: lastGoodEngine };
 }
 
 // ── Test seams ──────────────────────────────────────────────────────────────
 /** Returns lastGoodDot. Production code never calls this. */
 export function _lastGoodDot(): string | null {
   return lastGoodDot;
-}
-
-/** Returns the overlay element (or null). Production code never calls this. */
-export function _overlayElement(): HTMLElement | null {
-  return document.getElementById("ig-error-overlay");
-}
-
-/** Returns the empty-notice element (or null). Production code never calls this. */
-export function _emptyNoticeElement(): HTMLElement | null {
-  return document.getElementById("ig-empty-notice");
-}
-
-/** Returns the disconnect-notice element (or null). Production code never calls this. */
-export function _disconnectNoticeElement(): HTMLElement | null {
-  return document.getElementById("ig-disconnect-notice");
 }
 
 // ── Reset keybinding (Story 5.1 AC1) ──────────────────────────────────────────
@@ -382,64 +271,9 @@ export function installResetKeybinding(): void {
   document.addEventListener("keydown", handleResetKeydown);
 }
 
-// ── View toolbar (clickable home / zoom-in / zoom-out) ────────────────────────
-// Visible affordances for users who prefer clicking over gestures. Each button
-// wraps the SAME code path its gesture twin uses: home → resetZoomToFit() (the
-// `0`/`r` handler), zoom in/out → the live d3-zoom behavior's public scaleBy —
-// the mechanism behind d3-zoom's own scroll/double-click gestures. No parallel
-// zoom implementation.
-
-const VIEW_TOOLBAR_ID = "ig-view-toolbar";
-
-// Per-click zoom step. Gentler than d3-zoom's double-click ×2 so repeated
-// clicks give fine-grained control; in and out are multiplicative inverses
-// (float drift ~1e-16 per in/out pair — far below anything visible).
-const ZOOM_BUTTON_FACTOR = 1.4;
-
-// How far overlays must stay from the right viewport edge to clear the
-// toolbar column: 8px offset + 28px button width + 8px gutter. showError and
-// the search-box max-width derive from this — keep the three in sync.
-const VIEW_TOOLBAR_CLEARANCE_PX = 44;
-
-// Button icons — adapted from plantuml-previewer.vim's viewer icons (the
-// reference UX). Flattened for inlining: the originals carry per-file
-// <style> classes (.cls-1/.cls-2) that would collide as globals when all
-// three sit on one page, and a hardcoded near-black fill; here shapes use
-// attributes directly and `currentColor` so the button color applies. The
-// viewBox is cropped from the original A4 canvas to the icon's region.
-const ICON_HOME =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 40 595.28 640" width="16" height="16" aria-hidden="true">' +
-  '<path fill="currentColor" d="M477.38,403.76L328.27,245a44,44,0,0,0-64-.22l-151.36,159a41,41,0,0,0-10.75,27.67V605.09a41,41,0,0,0,41,41H214a24.4,24.4,0,0,0,24.4-24.4V542h113.4v79.68a24.4,24.4,0,0,0,24.4,24.4h70.9a41,41,0,0,0,41-41V431.44A41,41,0,0,0,477.38,403.76Z"/>' +
-  '<path fill="currentColor" d="M509.59,397.39L323.83,196.74a40,40,0,0,0-58.63-.08L83.09,392.29a40,40,0,0,1-56.53,2h0a40,40,0,0,1-2-56.53L265.36,79.07a40,40,0,0,1,58.63.08L568.3,343a40,40,0,0,1-2.18,56.53h0A40,40,0,0,1,509.59,397.39Z"/>' +
-  "</svg>";
-const ICON_ZOOM_IN =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 100 595.28 640" width="16" height="16" aria-hidden="true">' +
-  '<circle fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="60" cx="237.42" cy="329.29" r="169.09" transform="translate(-163.31 264.32) rotate(-45)"/>' +
-  '<rect fill="currentColor" x="428.28" y="406.9" width="60" height="286.5" rx="30" ry="30" transform="translate(-254.79 485.18) rotate(-45)"/>' +
-  '<path fill="currentColor" d="M300.41,299.29h-33v-33a30,30,0,0,0-60,0v33h-33a30,30,0,0,0-30,30h0a30,30,0,0,0,30,30h33v33a30,30,0,1,0,60,0v-33h33a30,30,0,0,0,30-30h0A30,30,0,0,0,300.41,299.29Z"/>' +
-  "</svg>";
-const ICON_ZOOM_OUT =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 100 595.28 640" width="16" height="16" aria-hidden="true">' +
-  '<rect fill="currentColor" x="143.94" y="299.29" width="185.99" height="60" rx="30" ry="30"/>' +
-  '<circle fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="60" cx="236.93" cy="329.29" r="169.09" transform="translate(-163.45 263.98) rotate(-45)"/>' +
-  '<rect fill="currentColor" x="427.79" y="406.9" width="60" height="286.5" rx="30" ry="30" transform="translate(-254.93 484.84) rotate(-45)"/>' +
-  "</svg>";
-// Hand-drawn in the same coordinate scale/stroke weight as the icons above:
-// a down-arrow (shaft + head) over a U-shaped tray.
-const ICON_DOWNLOAD =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 100 595.28 640" width="16" height="16" aria-hidden="true">' +
-  '<rect fill="currentColor" x="267.64" y="170" width="60" height="230" rx="30" ry="30"/>' +
-  '<path fill="currentColor" d="M157.64,380h280L297.64,520Z"/>' +
-  '<path fill="none" stroke="currentColor" stroke-width="60" stroke-linecap="round" d="M97.64,560v70a40,40,0,0,0,40,40h320a40,40,0,0,0,40-40v-70"/>' +
-  "</svg>";
-// Hand-drawn in the same coordinate scale/stroke weight as the icons above:
-// a document outline holding <> code brackets (the interactive-HTML export).
-const ICON_HTML_EXPORT =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 100 595.28 640" width="16" height="16" aria-hidden="true">' +
-  '<rect fill="none" stroke="currentColor" stroke-width="50" x="117.64" y="170" width="360" height="460" rx="40" ry="40"/>' +
-  '<path fill="none" stroke="currentColor" stroke-width="50" stroke-linecap="round" stroke-linejoin="round" d="M257.64,320 187.64,400 257.64,480"/>' +
-  '<path fill="none" stroke="currentColor" stroke-width="50" stroke-linecap="round" stroke-linejoin="round" d="M337.64,320 407.64,400 337.64,480"/>' +
-  "</svg>";
+// The view toolbar (home / zoom-in / zoom-out / exports) lives in toolbar.ts
+// (plan item #1a extraction); its buttons call back into resetZoomToFit and
+// zoomBy here — the d3-touching halves stay in this module.
 
 /**
  * Scale the view about its current center by `factor` (>1 zooms in, <1 out)
@@ -595,271 +429,8 @@ function cancelCursorPan(): void {
   }
 }
 
-/**
- * Serialize the live rendered graph as a standalone SVG document string, or
- * null when nothing has rendered yet. Works on a CLONE — the on-screen SVG is
- * never touched. The export is the clean graph as drawn (WYSIWYG, including
- * the current zoom/pan transform): the plugin's transient `ig-*` emphasis
- * classes are stripped (their stylesheet lives in <head> and would not ship
- * with the file), Graphviz's own classes stay, and the root gets xmlns /
- * xmlns:xlink injected when missing plus an XML prolog — the proven pattern
- * from vscode-interactive-graphviz's content/save.js.
- */
-export function serializeGraphSvg(): string | null {
-  const svg = document.querySelector("#app svg");
-  if (!svg) return null;
-  const clone = svg.cloneNode(true) as Element;
-  // querySelectorAll excludes the clone root — include it explicitly.
-  for (const el of [clone, ...clone.querySelectorAll("[class]")]) {
-    const classes = el.getAttribute("class");
-    if (classes == null) continue;
-    const kept = classes.split(/\s+/).filter((c) => c.length > 0 && !c.startsWith("ig-"));
-    if (kept.length === 0) el.removeAttribute("class");
-    else el.setAttribute("class", kept.join(" "));
-  }
-  let source = new XMLSerializer().serializeToString(clone);
-  if (!/^<svg[^>]*\sxmlns="http:\/\/www\.w3\.org\/2000\/svg"/.test(source)) {
-    source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
-  }
-  if (!/^<svg[^>]*\sxmlns:xlink=/.test(source)) {
-    source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
-  }
-  return '<?xml version="1.0" encoding="UTF-8"?>\n' + source;
-}
-
-/**
- * Download the current graph as `graph.svg` (the buffer's filename never
- * reaches the frontend — only config params ride the preview URL). Silent
- * no-op before the first render; guarded so a Blob/object-URL quirk can
- * never take the preview down.
- */
-export function saveGraphSvg(): void {
-  try {
-    const source = serializeGraphSvg();
-    if (source === null) return;
-    const blob = new Blob([source], { type: "image/svg+xml" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "graph.svg";
-    // Firefox needs the anchor in the document for a synthetic click.
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  } catch (err) {
-    console.warn("interactive-graphviz: saveGraphSvg failed", err);
-  }
-}
-
-// ── Save as interactive HTML (single-file export) ─────────────────────────────
-// The preview build is fully self-contained — one JS bundle, every stylesheet
-// JS-injected — so a standalone interactive export is just: the trivial page
-// skeleton + an embedded {dot, engine, search} payload + the bundle inlined.
-// On load, main.ts sees the payload ("static export mode"), re-renders the
-// graph through the bundled WASM engine, and never opens a WebSocket — zoom,
-// highlight, search and the SVG export keep working offline because they ARE
-// the same code. Neovim-coupled features (jump-on-click, cursor echo) are
-// inert by construction: no sender is ever registered and no emphasize frames
-// arrive.
-
-/** The payload an exported page boots from (`window.__igExport`). */
-export interface ExportPayload {
-  /** The DOT source to render — the preview's lastGoodDot at export time. */
-  dot: string;
-  /** Layout engine; defaults to "dot" when absent/invalid in the payload. */
-  engine: string;
-  /**
-   * The preview URL's query string at export time — filtered down to the
-   * interactivity config params only (filterConfigSearch), so the exported
-   * page re-applies the SAME setup() config through the existing
-   * applyUrlConfig path while the live session's sessionId/token never
-   * enter the file.
-   */
-  search: string;
-}
-
-/**
- * Read and validate `window.__igExport`. Returns null unless `dot` is a
- * string (the one load-bearing field); engine/search fall back to safe
- * defaults so a hand-edited payload degrades instead of throwing. On null,
- * main.ts consults hasExportMarker() to tell a corrupt export (fail inert)
- * apart from a normal live preview (WebSocket boot).
- */
-export function readExportPayload(): ExportPayload | null {
-  if (typeof window === "undefined") return null;
-  const raw = (window as unknown as { __igExport?: unknown }).__igExport;
-  if (typeof raw !== "object" || raw === null) return null;
-  const o = raw as Record<string, unknown>;
-  if (typeof o.dot !== "string") return null;
-  return {
-    dot: o.dot,
-    engine: typeof o.engine === "string" && o.engine.length > 0 ? o.engine : "dot",
-    search: typeof o.search === "string" ? o.search : "",
-  };
-}
-
-/** True when this page IS an exported file (booted from an embedded payload). */
-export function isStaticExportPage(): boolean {
-  return readExportPayload() !== null;
-}
-
-/**
- * True when a `window.__igExport` marker is present at all — even one too
- * malformed for readExportPayload() to accept. main.ts uses this to keep a
- * corrupt exported file from falling through to the live WebSocket boot:
- * under file:// `location.host` is empty, so the WebSocket constructor would
- * throw synchronously and take the page down instead of failing inert.
- */
-export function hasExportMarker(): boolean {
-  if (typeof window === "undefined") return false;
-  return (window as unknown as { __igExport?: unknown }).__igExport !== undefined;
-}
-
-/**
- * Assemble the standalone interactive HTML document. Pure string assembly —
- * no DOM, no fetch — so it is unit-testable; saveInteractiveHtml is the
- * DOM/fetch wrapper (mirroring the serializeGraphSvg/saveGraphSvg split).
- *
- * Escaping is the correctness-critical part (the HTML parser scans raw script
- * content for terminators):
- *  - the JSON payload embeds with EVERY `<` escaped as `<` — a JS string
- *    escape, so the parsed value is byte-identical while `</script>`/`<!--`
- *    can never appear in the raw text;
- *  - the bundle is arbitrary JS code, so only the terminator sequence is
- *    rewritten: `</script` → `<\/script` (case preserved via capture). That
- *    sequence can only occur inside JS strings/regex/comments, where `\/`
- *    means `/` — the standard inline-bundle escape.
- *
- * The skeleton mirrors frontend/index.html (charset/viewport + `<main
- * id="app">`); the payload rides a classic script that runs before the
- * inlined `type="module"` bundle (modules are deferred, classics are not, so
- * the ordering holds regardless).
- */
-export function assembleInteractiveHtml(bundleSource: string, payload: ExportPayload): string {
-  const payloadJs = JSON.stringify(payload).replace(/</g, "\\u003c");
-  const inlineBundle = bundleSource.replace(/<\/(script)/gi, "<\\/$1");
-  return (
-    "<!doctype html>\n" +
-    '<html lang="en">\n' +
-    "  <head>\n" +
-    '    <meta charset="utf-8">\n' +
-    '    <meta name="viewport" content="width=device-width, initial-scale=1">\n' +
-    "    <title>graph — interactive-graphviz export</title>\n" +
-    "  </head>\n" +
-    "  <body>\n" +
-    '    <main id="app"></main>\n' +
-    `    <script>window.__igExport = ${payloadJs};</script>\n` +
-    `    <script type="module">${inlineBundle}</script>\n` +
-    "  </body>\n" +
-    "</html>\n"
-  );
-}
-
-/**
- * Download the current graph as a self-contained interactive `graph.html`.
- * Embeds the last GOOD dot (exactly what the stash holds — an error overlay
- * on screen does not change what exports) plus the page's own bundle, fetched
- * via its <script src>. Silent no-op before the first successful render or
- * when no external bundle script exists (i.e. inside an exported page, where
- * the button is hidden anyway); guarded so a fetch/Blob quirk can never take
- * the preview down.
- */
-export async function saveInteractiveHtml(): Promise<void> {
-  try {
-    if (lastGoodDot === null) return;
-    const payload: ExportPayload = {
-      dot: lastGoodDot,
-      engine: lastGoodEngine,
-      // Whitelist-filtered: config params only. The raw location.search also
-      // carries sessionId + the per-session auth token, which must never be
-      // written into a shareable file.
-      search: filterConfigSearch(window.location.search),
-    };
-    const bundleScript = document.querySelector<HTMLScriptElement>("script[src]");
-    if (!bundleScript) return;
-    const resp = await fetch(bundleScript.src);
-    if (!resp.ok) {
-      console.warn("interactive-graphviz: bundle fetch failed", resp.status);
-      return;
-    }
-    const html = assembleInteractiveHtml(await resp.text(), payload);
-    const blob = new Blob([html], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "graph.html";
-    // Firefox needs the anchor in the document for a synthetic click.
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  } catch (err) {
-    console.warn("interactive-graphviz: saveInteractiveHtml failed", err);
-  }
-}
-
-/**
- * Install the fixed view toolbar at the top-right: home (reset to fit),
- * zoom in, zoom out. Idempotent via DOM id guard (not a module flag) so it
- * can be reinstalled after the body is rebuilt. Attached to <body>, outside
- * #app, so d3-graphviz re-renders never touch it.
- */
-export function installViewToolbar(): void {
-  if (document.getElementById(VIEW_TOOLBAR_ID)) return;
-
-  const bar = document.createElement("div");
-  bar.id = VIEW_TOOLBAR_ID;
-  bar.setAttribute("role", "toolbar");
-  bar.setAttribute("aria-label", "View controls");
-  // z-index 9998: below the error overlay / empty notice (9999); those are
-  // pointer-events:none so the buttons stay clickable even if overlapped.
-  bar.style.cssText =
-    "position:fixed;top:8px;right:8px;display:flex;flex-direction:column;" +
-    "gap:4px;z-index:9998;";
-
-  const addButton = (iconSvg: string, tooltip: string, onClick: () => void) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.innerHTML = iconSvg;
-    btn.title = tooltip;
-    // The icon SVGs are aria-hidden, so give AT a real name (title alone is
-    // announced inconsistently across screen readers).
-    btn.setAttribute("aria-label", tooltip);
-    btn.style.cssText =
-      "width:28px;height:28px;background:rgba(40,40,40,0.85);color:#cccccc;" +
-      "border:none;border-radius:4px;display:flex;align-items:center;" +
-      "justify-content:center;padding:0;cursor:pointer;";
-    // Keep focus where it is (e.g. in the open search input) — a mouse click
-    // must not move focus onto the button, which would both blur the search
-    // box (breaking its Esc-to-close) and let a later Space/Enter re-fire
-    // the zoom. Keyboard Tab-focus + Enter still activates normally.
-    btn.addEventListener("mousedown", (e) => e.preventDefault());
-    btn.addEventListener("click", onClick);
-    bar.appendChild(btn);
-  };
-
-  addButton(ICON_HOME, "Reset view to fit (0 or r)", () => resetZoomToFit());
-  addButton(ICON_ZOOM_IN, "Zoom in (scroll up / double-click)", () => zoomBy(ZOOM_BUTTON_FACTOR));
-  addButton(ICON_ZOOM_OUT, "Zoom out (scroll down / Shift+double-click)", () =>
-    zoomBy(1 / ZOOM_BUTTON_FACTOR),
-  );
-  addButton(ICON_DOWNLOAD, "Save as SVG (as currently rendered)", () => saveGraphSvg());
-  // Hidden inside an exported page: the bundle is inline there, not
-  // re-fetchable, so a nested export is impossible by construction.
-  if (!isStaticExportPage()) {
-    addButton(ICON_HTML_EXPORT, "Save as interactive HTML (self-contained)", () => {
-      void saveInteractiveHtml();
-    });
-  }
-
-  document.body.appendChild(bar);
-}
-
-/** Returns the toolbar element (or null). Production code never calls this. */
-export function _viewToolbarElement(): HTMLElement | null {
-  return document.getElementById(VIEW_TOOLBAR_ID);
-}
+// Save-as-SVG / save-as-interactive-HTML live in export.ts, and the view
+// toolbar in toolbar.ts (plan item #1a extraction) — neither touches d3.
 
 // ── Click-to-highlight neighbors (Story 5.2) ─────────────────────────────────
 // render.ts is the only module that touches the live SVG, so it owns the DOM
@@ -1356,7 +927,7 @@ const SEARCH_CSS = `
   display:flex; align-items:center; gap:8px; box-shadow:0 2px 8px rgba(0,0,0,0.4);
   /* Cap the centered box so its right edge stays >=48px from the viewport edge
      on narrow windows — clear of the view toolbar's right column (see
-     VIEW_TOOLBAR_CLEARANCE_PX); without this the higher-z-index, pointer-events:auto
+     VIEW_TOOLBAR_CLEARANCE_PX in overlays.ts); without this the higher-z-index, pointer-events:auto
      box would capture the toolbar buttons' clicks. */
   max-width:calc(100vw - 96px); flex-wrap:wrap; }
 #${SEARCH_BOX_ID} input[type=text] { background:#1b1b1b; color:#eee; border:1px solid #444;

@@ -7,41 +7,44 @@ GlobalRegistrator.register();
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   _cursorEmphasisSnapshot,
-  _disconnectNoticeElement,
-  _emptyNoticeElement,
-  _overlayElement,
   _reapplyHighlightAfterRender,
   _resetHighlightState,
   _resetSearchState,
   _searchIsOpen,
   _selectionSnapshot,
   _setLastGoodDot,
-  _viewToolbarElement,
   applyCursorEmphasis,
-  assembleInteractiveHtml,
-  clearDisconnectNotice,
-  clearError,
   closeSearch,
   cursorPanNeeded,
   intersectRects,
   viewCenterInViewBox,
   handleHighlightKeydown,
   handleSearchKeydown,
-  hasExportMarker,
   installInteractionHandlers,
-  installViewToolbar,
-  isStaticExportPage,
   nodeTitleFromClickTarget,
   openSearch,
+  zoomBy,
+} from "./render";
+import {
+  _disconnectNoticeElement,
+  _emptyNoticeElement,
+  _overlayElement,
+  clearDisconnectNotice,
+  clearError,
+  showDisconnectNotice,
+  showEmptyNotice,
+  showError,
+} from "./overlays";
+import { _viewToolbarElement, installViewToolbar } from "./toolbar";
+import {
+  assembleInteractiveHtml,
+  hasExportMarker,
+  isStaticExportPage,
   readExportPayload,
   saveGraphSvg,
   saveInteractiveHtml,
   serializeGraphSvg,
-  showDisconnectNotice,
-  showEmptyNotice,
-  showError,
-  zoomBy,
-} from "./render";
+} from "./export";
 import { _resetSync, setJumpOnClick, setNodeClickSender } from "./sync";
 
 // Story 5.2/5.3/5.4 — the live DOM emphasis path (applyHighlightToDom,
