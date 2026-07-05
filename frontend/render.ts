@@ -46,10 +46,10 @@ import {
 import { clearError, showError } from "./overlays";
 import {
   appElement,
-  edgeGroups,
+  edgeEntries,
   extractModelFromApp,
-  groupTitle,
-  nodeGroups,
+  invalidateGraphDom,
+  nodeEntries,
   nodeTitleFromClickTarget,
 } from "./graph-dom";
 
@@ -106,6 +106,13 @@ function animationsEnabled(): boolean {
  */
 export function renderDot(dot: string, engine: string, animate = animationsEnabled()): Promise<void> {
   return new Promise<void>((resolve, reject) => {
+    // The render is about to mutate the #app subtree, and does so again until
+    // it settles — drop the graph-dom snapshot on BOTH sides (entry + end /
+    // error) so no cached elements outlive the subtree they came from. This
+    // is the single choke point every DOM-rebuilding path flows through
+    // (queued renders via renderDotWithFallback AND the error-recovery
+    // render in the queue's onError).
+    invalidateGraphDom();
     try {
       // d3-graphviz error handling is the dedicated `.onerror()` method — NOT
       // `.on("error", …)`. The `.on()` event system only knows the render
@@ -123,15 +130,20 @@ export function renderDot(dot: string, engine: string, animate = animationsEnabl
       }
       gv.onerror((err: unknown) => {
         console.error("interactive-graphviz: render error", err);
+        invalidateGraphDom();
         reject(err instanceof Error ? err : new Error(String(err)));
       })
         // Resolve on "end" — fires LAST in both the instant and transitioned
         // paths (verified above), so the render-lock releases exactly once after
         // any transition settles. Do NOT weaken this (AC3).
-        .on("end", () => resolve())
+        .on("end", () => {
+          invalidateGraphDom();
+          resolve();
+        })
         .renderDot(dot);
     } catch (err) {
       console.error("interactive-graphviz: render error (sync)", err);
+      invalidateGraphDom();
       reject(err instanceof Error ? err : new Error(String(err)));
     }
   });
@@ -573,16 +585,14 @@ function applyHighlightToDom(set: HighlightSet): void {
   ensureHighlightStyle();
 
   const anySelected = set.selected.size > 0;
-  nodeGroups().forEach((g) => {
-    const name = groupTitle(g);
+  nodeEntries().forEach(({ el: g, title: name }) => {
     g.classList.remove("ig-selected", "ig-neighbor", "ig-dimmed");
     if (!anySelected) return; // cleared state: no classes, full opacity
     if (set.selected.has(name)) g.classList.add("ig-selected");
     else if (set.nodes.has(name)) g.classList.add("ig-neighbor");
     else g.classList.add("ig-dimmed");
   });
-  edgeGroups().forEach((g) => {
-    const title = groupTitle(g);
+  edgeEntries().forEach(({ el: g, title }) => {
     g.classList.remove("ig-neighbor", "ig-dimmed");
     if (!anySelected) return;
     // Edge <title> text is exactly the EdgeKey form (A->B / A--B).
@@ -631,8 +641,8 @@ export function applyCursorEmphasis(nodeId: string | null): void {
   const key = _cursorEmphasisNode;
   // Edge pass first: it decides which endpoint nodes the node pass includes.
   let emphasizedEdge: Element | null = null;
-  edgeGroups().forEach((g) => {
-    if (key !== null && groupTitle(g) === key) {
+  edgeEntries().forEach(({ el: g, title }) => {
+    if (key !== null && title === key) {
       g.classList.add("ig-cursor");
       if (emphasizedEdge === null) emphasizedEdge = g; // multi-edges: all lit, first pans
     } else {
@@ -643,8 +653,7 @@ export function applyCursorEmphasis(nodeId: string | null): void {
   // edge but matches nothing must not light stray same-named nodes.
   const ends = emphasizedEdge !== null && key !== null ? parseEdgeTitle(key) : null;
   let emphasizedNode: Element | null = null;
-  nodeGroups().forEach((g) => {
-    const title = groupTitle(g);
+  nodeEntries().forEach(({ el: g, title }) => {
     const hit =
       key !== null && (title === key || (ends !== null && (title === ends.from || title === ends.to)));
     if (hit) {
@@ -690,6 +699,13 @@ function recomputeAndApplyHighlight(): void {
  * never touches the v-guard / render-lock (those live in render-queue.ts).
  */
 function reapplyHighlightAfterRender(): void {
+  // The subtree was just rebuilt: drop the graph-dom snapshot so every read
+  // below (and every cursor frame/search keystroke until the next render)
+  // works from the NEW elements. renderDot already invalidated on "end" for
+  // the production path; this entry-point invalidation makes the test seam
+  // (_reapplyHighlightAfterRender after an innerHTML swap) honor the same
+  // render-boundary contract.
+  invalidateGraphDom();
   // Refresh the cluster model from the latest applied DOT (set by the queue
   // wrapper before render); fall back to SVG-derived model (no cluster members).
   if (lastGoodDot !== null) {

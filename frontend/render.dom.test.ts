@@ -24,7 +24,12 @@ import {
   openSearch,
   zoomBy,
 } from "./render";
-import { nodeTitleFromClickTarget } from "./graph-dom";
+import {
+  extractModelFromApp,
+  invalidateGraphDom,
+  nodeEntries,
+  nodeTitleFromClickTarget,
+} from "./graph-dom";
 import {
   _disconnectNoticeElement,
   _emptyNoticeElement,
@@ -106,6 +111,7 @@ afterEach(() => {
   _resetSync();
   clearError(0);
   document.body.innerHTML = "";
+  invalidateGraphDom();
 });
 
 describe("click-to-highlight DOM emphasis (Story 5.2)", () => {
@@ -271,6 +277,47 @@ describe("reapplyHighlightAfterRender (Story 5.2 AC4 — live-reload interop)", 
     for (const id of ["g-b", "g-c", "g-bc"]) {
       expect(classesOf(id)).toEqual([]);
     }
+  });
+});
+
+describe("graph-dom snapshot cache (plan item #8b)", () => {
+  test("reads are cached per snapshot: same entries and same model object until invalidated", () => {
+    const first = nodeEntries();
+    expect(first.map((e) => e.title)).toEqual(["a", "b", "c"]);
+    expect(nodeEntries()).toBe(first); // identical array — no re-scan
+    const model = extractModelFromApp();
+    expect(extractModelFromApp()).toBe(model); // model cached per snapshot
+
+    invalidateGraphDom();
+    const fresh = nodeEntries();
+    expect(fresh).not.toBe(first); // rebuilt from the live DOM
+    expect(fresh.map((e) => e.title)).toEqual(["a", "b", "c"]); // same content
+    expect(extractModelFromApp()).not.toBe(model);
+  });
+
+  test("the render boundary (reapply) refreshes the snapshot after a subtree rebuild", () => {
+    const stale = nodeEntries();
+    // Simulate d3-graphviz rebuilding the subtree; production invalidates via
+    // renderDot + the reapply boundary — the seam mirrors the latter.
+    document.getElementById("app")!.innerHTML = FIXTURE_SVG;
+    // Outside the render boundary the contract serves the cached snapshot:
+    expect(nodeEntries()).toBe(stale);
+
+    _reapplyHighlightAfterRender();
+    const fresh = nodeEntries();
+    expect(fresh).not.toBe(stale);
+    // The fresh entries are the NEW elements, not the detached ones.
+    expect(fresh[0]!.el.isConnected).toBe(true);
+    expect(stale[0]!.el.isConnected).toBe(false);
+  });
+
+  test("a wholesale #app replacement is self-detected (no explicit invalidation)", () => {
+    const before = nodeEntries();
+    expect(before.map((e) => e.title)).toEqual(["a", "b", "c"]);
+    setupApp(); // replaces body -> brand-new #app element
+    const after = nodeEntries();
+    expect(after).not.toBe(before);
+    expect(after[0]!.el.isConnected).toBe(true);
   });
 });
 

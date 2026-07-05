@@ -104,4 +104,22 @@ test("preview renders a real graph and click-highlight works", async ({ page }) 
   // Esc clears the emphasis — the interaction is live, not a one-way latch.
   await page.keyboard.press("Escape");
   await expect(nodeA).not.toHaveClass(/ig-selected/);
+
+  // Live reload: a second render rebuilds the SVG subtree; interactions must
+  // work against the NEW elements (guards the graph-dom snapshot cache — a
+  // stale cache would toggle classes on detached nodes and nothing would
+  // highlight).
+  proc.stdin!.write(
+    `${JSON.stringify({
+      type: "render",
+      sessionId: 1,
+      dot: "digraph { a -> b; b -> c; c -> d }",
+      engine: "dot",
+      v: 2,
+    })}\n`,
+  );
+  await expect(page.locator("#app svg g.node")).toHaveCount(4, { timeout: 10_000 });
+  const nodeD = page.locator("g.node", { has: page.locator('title:text-is("d")') });
+  await nodeD.click();
+  await expect(nodeD).toHaveClass(/ig-selected/);
 });
