@@ -2,9 +2,11 @@
 --
 -- Story 6.2 (graph → buffer): maps a clicked node id to its first occurrence
 -- in the DOT buffer and moves the cursor there.
--- Story 6.3 (buffer → graph): resolves the node under the cursor and sends a
--- debounced `emphasize` so the Preview outlines it; leaving the node (or a
--- miss) clears via `emphasize{nodeId:null}`.
+-- Story 6.3 (buffer → graph): resolves the node — or, on an edge line, the
+-- edge (`a->b` key form, matching the SVG edge <title>) — under the cursor
+-- and sends a debounced `emphasize` so the Preview outlines it (an edge
+-- lights the edge plus both endpoint nodes); leaving it (or a miss) clears
+-- via `emphasize{nodeId:null}`.
 --
 -- There is deliberately NO maintained source map: the buffer text is scanned on
 -- demand, so a stale browser (live-reload race) degrades to an informative
@@ -249,22 +251,18 @@ local function walk_line(line, state, collect)
   end
 end
 
--- Resolve the node id "at" (lnum, col) — the buffer→graph direction (FR-20).
--- Lines 1..lnum-1 are walked solely to carry multi-line comment/HTML state so
--- a cursor inside a /* */ block or HTML label resolves to nothing. On the
--- cursor line, prefers the candidate whose span contains `col` (1-based byte;
--- convert nvim_win_get_cursor's 0-based col before calling); falls back to the
--- FIRST candidate on the line (ux-sync-v3 "the node's line"); nil when the
--- line holds none.
-function M.find_node_at(lines, lnum, col)
+-- Collect every candidate id on line `lnum` with its 1-based byte span,
+-- walking lines 1..lnum-1 solely to carry multi-line comment/HTML state (so a
+-- cursor inside a /* */ block or HTML label collects nothing). Returns an
+-- array of { id, s, e } in line order, or nil on degraded input. Shared by
+-- find_node_at and find_emphasis_at so the two resolvers can never disagree
+-- about what counts as a candidate.
+local function candidates_at(lines, lnum)
   if type(lines) ~= "table" or type(lnum) ~= "number" then
     return nil
   end
   if lnum < 1 or lnum > #lines or type(lines[lnum]) ~= "string" then
     return nil
-  end
-  if type(col) ~= "number" or col < 1 then
-    col = 1
   end
   local state = { block_comment = false, html_depth = 0 }
   for i = 1, lnum - 1 do
@@ -272,16 +270,146 @@ function M.find_node_at(lines, lnum, col)
       walk_line(lines[i], state, nil)
     end
   end
-  local at, first = nil, nil
+  local cands = {}
   walk_line(lines[lnum], state, function(id, start_col, end_col)
-    if first == nil then
-      first = id
-    end
-    if at == nil and col >= start_col and col <= end_col then
-      at = id
-    end
+    table.insert(cands, { id = id, s = start_col, e = end_col })
   end)
-  return at or first
+  return cands
+end
+
+-- Resolve the node id "at" (lnum, col) — the buffer→graph direction (FR-20).
+-- Prefers the candidate whose span contains `col` (1-based byte; convert
+-- nvim_win_get_cursor's 0-based col before calling); falls back to the FIRST
+-- candidate on the line (ux-sync-v3 "the node's line"); nil when the line
+-- holds none.
+function M.find_node_at(lines, lnum, col)
+  local cands = candidates_at(lines, lnum)
+  if cands == nil then
+    return nil
+  end
+  if type(col) ~= "number" or col < 1 then
+    col = 1
+  end
+  for _, c in ipairs(cands) do
+    if col >= c.s and col <= c.e then
+      return c.id
+    end
+  end
+  return cands[1] and cands[1].id or nil
+end
+
+-- Is the raw text between two adjacent candidate spans exactly a DOT edge
+-- operator (plus whitespace)? Returns "->" / "--" or nil. Anything else in
+-- the gap (`;`, `[`, `=`, a `:port` suffix, comment text) means the pair is
+-- not a plain edge — the caller degrades to node resolution, which the
+-- browser at worst renders as a single-node outline, never a wrong edge.
+local function edge_op_between(line, left, right)
+  local gap = line:sub(left.e + 1, right.s - 1)
+  if gap:match("^%s*%->%s*$") then
+    return "->"
+  end
+  if gap:match("^%s*%-%-%s*$") then
+    return "--"
+  end
+  return nil
+end
+
+-- Does a `;` statement boundary separate candidate `k` from the nearest edge
+-- on the line? Scans the raw gaps BETWEEN candidate spans (candidate content
+-- itself — e.g. a quoted label holding `;` — is never inspected) from the
+-- preceding edge's right endpoint up to `k`, or from `k` to the following
+-- edge's left endpoint when no edge precedes. DOT also allows bare-whitespace
+-- statement separators; those fail this check and degrade to the line's
+-- first edge — same-shaped miss as every other strict-detection fallback.
+local function stmt_break_between(line, cands, edges, k)
+  local from, to = nil, nil
+  for _, ed in ipairs(edges) do
+    if ed.ri <= k - 1 then
+      from, to = ed.ri, k
+    elseif from == nil and ed.li >= k + 1 then
+      from, to = k, ed.li
+      break
+    end
+  end
+  if from == nil then
+    return false
+  end
+  for m = from, to - 1 do
+    local gap = line:sub(cands[m].e + 1, cands[m + 1].s - 1)
+    if gap:find(";", 1, true) then
+      return true
+    end
+  end
+  return false
+end
+
+-- Resolve what the cursor at (lnum, col) should emphasize: an EDGE key when
+-- the line contains an edge statement, else a node id (find_node_at rules).
+--
+-- Edge lines win regardless of column ("any position on an edge line lights
+-- the edge + both ends"): `a -> b;` emphasizes the edge a->b whether the
+-- cursor sits on `a`, the operator, `b`, or trailing punctuation. The key is
+-- `tail<op>head` — exactly the SVG edge <title> text graphviz emits (A->B
+-- directed, A--B undirected), so the browser matches it against g.edge titles
+-- with no new convention. Chains (`a -> b -> c`) prefer the segment whose
+-- span contains the cursor, falling back to the line's first edge; on mixed
+-- lines (`a -> b; c;`) a cursor inside a `;`-separated standalone node's
+-- span resolves to that node, not the earlier edge. Ports (`a:p -> b`),
+-- subgraph
+-- endpoints (`{a b} -> c`), and operators split by comments all fail the
+-- strict gap test and degrade to node resolution — miss ≡ single-node
+-- emphasis or cleared, never a wrong edge.
+function M.find_emphasis_at(lines, lnum, col)
+  local cands = candidates_at(lines, lnum)
+  if cands == nil then
+    return nil
+  end
+  if type(col) ~= "number" or col < 1 then
+    col = 1
+  end
+  local line = lines[lnum]
+  local edges = {}
+  for i = 1, #cands - 1 do
+    local op = edge_op_between(line, cands[i], cands[i + 1])
+    if op then
+      table.insert(edges, {
+        key = cands[i].id .. op .. cands[i + 1].id,
+        s = cands[i].s,
+        e = cands[i + 1].e,
+        li = i, -- candidate indices of the endpoints, for the
+        ri = i + 1, -- statement-boundary check below
+      })
+    end
+  end
+  if #edges > 0 then
+    for _, ed in ipairs(edges) do
+      if col >= ed.s and col <= ed.e then
+        return ed.key
+      end
+    end
+    -- Outside every edge span: the candidate under the cursor (never an edge
+    -- endpoint — edge spans cover both endpoints entirely) is a STANDALONE
+    -- node on a mixed line (`a -> b; c;` with the cursor on c) only when a
+    -- `;` statement boundary separates it from the nearest edge. Gaps are
+    -- checked between candidate spans, so a `;` inside a quoted label can't
+    -- fake a boundary; attr-list candidates (`[color=red]`) have no `;` gap
+    -- and keep falling back to the edge.
+    for k, c in ipairs(cands) do
+      if col >= c.s and col <= c.e then
+        if stmt_break_between(line, cands, edges, k) then
+          return c.id
+        end
+        break
+      end
+    end
+    return edges[1].key
+  end
+  for _, c in ipairs(cands) do
+    if col >= c.s and col <= c.e then
+      return c.id
+    end
+  end
+  return cands[1] and cands[1].id or nil
 end
 
 -- ── Story 6.3: one-shot echo suppression (AC3 / NFR-8) ───────────────────────
@@ -408,10 +536,12 @@ end
 -- as the watch-liveness signal handle_node_click reads.)
 local timers = {}
 
--- Resolve the node under the cursor for `bufnr` and send `emphasize` on
--- change. Runs on the debounce boundary via vim.schedule. Reads the cursor
--- from the CURRENT window when it shows the buffer (the window being edited),
--- else the first window showing it; no window → resolves to "no node".
+-- Resolve the emphasis target under the cursor for `bufnr` — a node id, or an
+-- edge key (`a->b` / `a--b`) when the cursor line is an edge statement — and
+-- send `emphasize` on change. Runs on the debounce boundary via vim.schedule.
+-- Reads the cursor from the CURRENT window when it shows the buffer (the
+-- window being edited), else the first window showing it; no window →
+-- resolves to "nothing".
 local function emit_for_cursor(bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then
     return
@@ -429,7 +559,7 @@ local function emit_for_cursor(bufnr)
   if sync_cfg.highlight_on_cursor ~= true then
     return
   end
-  local node = nil
+  local target = nil
   local win = nil
   local ok_cur, cur_win = pcall(vim.api.nvim_get_current_win)
   if ok_cur and vim.api.nvim_win_get_buf(cur_win) == bufnr then
@@ -445,22 +575,24 @@ local function emit_for_cursor(bufnr)
     if ok_pos and type(pos) == "table" then
       local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
       -- nvim_win_get_cursor's col is 0-based bytes; the matcher is 1-based.
-      node = M.find_node_at(lines, pos[1], pos[2] + 1)
+      target = M.find_emphasis_at(lines, pos[1], pos[2] + 1)
     end
   end
-  local key = node or NONE
+  local key = target or NONE
   if last_sent[bufnr] == key then
     return
   end
   last_sent[bufnr] = key
   -- Exact three-key envelope: the server validates emphasize with
-  -- hasExactlyKeys({type,sessionId,nodeId}) and nodeId string-or-null. The
-  -- clear value MUST be vim.NIL — vim.json.encode DROPS nil-valued keys, and a
+  -- hasExactlyKeys({type,sessionId,nodeId}) and nodeId string-or-null, then
+  -- relays verbatim — an edge key rides the SAME field with zero server
+  -- changes (a stale browser reads an unmatched key as cleared). The clear
+  -- value MUST be vim.NIL — vim.json.encode DROPS nil-valued keys, and a
   -- missing nodeId key fails validation, silently losing the clear.
   require("interactive-graphviz.server").send({
     type = "emphasize",
     sessionId = bufnr,
-    nodeId = node or vim.NIL,
+    nodeId = target or vim.NIL,
   })
 end
 

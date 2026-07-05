@@ -2,7 +2,7 @@
 title: 'View toolbar: save-as-interactive-HTML export button'
 type: 'feature'
 created: '2026-07-04'
-status: 'in-review'
+status: 'done' # shipped in v0.5.0 (eed327a); status updated 2026-07-05
 baseline_commit: 'b669ae1'
 context: ['spec-preview-save-svg-button.md']
 ---

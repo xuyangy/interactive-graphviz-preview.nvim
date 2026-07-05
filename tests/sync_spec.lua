@@ -517,6 +517,91 @@ describe("sync.find_node_at — cursor-column resolution", function()
   end)
 end)
 
+-- ── find_emphasis_at: edge lines emphasize edge + both ends ──────────────────
+
+describe("sync.find_emphasis_at — edge-aware cursor resolution", function()
+  it("ANY column on an edge line yields the edge key", function()
+    local lines = { "digraph {", "  a -> b;", "}" }
+    assert.are.equal("a->b", sync.find_emphasis_at(lines, 2, 1)) -- indent
+    assert.are.equal("a->b", sync.find_emphasis_at(lines, 2, 3)) -- on a
+    assert.are.equal("a->b", sync.find_emphasis_at(lines, 2, 5)) -- on ->
+    assert.are.equal("a->b", sync.find_emphasis_at(lines, 2, 8)) -- on b
+    assert.are.equal("a->b", sync.find_emphasis_at(lines, 2, 9)) -- on ;
+  end)
+
+  it("undirected edges keep the -- operator (matches the SVG edge title)", function()
+    assert.are.equal("a--b", sync.find_emphasis_at({ "a -- b;" }, 1, 4))
+  end)
+
+  it("no spaces around the operator still resolves", function()
+    assert.are.equal("a->b", sync.find_emphasis_at({ "a->b;" }, 1, 1))
+  end)
+
+  it("quoted endpoints resolve to their UNESCAPED ids in the key", function()
+    assert.are.equal("node one->b", sync.find_emphasis_at({ '"node one" -> b;' }, 1, 5))
+  end)
+
+  it("a chain prefers the segment containing the cursor; first segment otherwise", function()
+    local lines = { "a -> b -> c;" }
+    assert.are.equal("a->b", sync.find_emphasis_at(lines, 1, 1)) -- on a
+    assert.are.equal("b->c", sync.find_emphasis_at(lines, 1, 11)) -- on c
+    assert.are.equal("a->b", sync.find_emphasis_at(lines, 1, 12)) -- on ; → first
+  end)
+
+  it("two statements on one line resolve per-cursor, first edge as fallback", function()
+    local lines = { "a -> b; c -> d;" }
+    assert.are.equal("c->d", sync.find_emphasis_at(lines, 1, 14)) -- on d
+    assert.are.equal("a->b", sync.find_emphasis_at(lines, 1, 7)) -- on the first ;
+  end)
+
+  it("a ;-separated standalone node after an edge resolves to the node, not the edge", function()
+    local lines = { "a -> b; c;" }
+    assert.are.equal("c", sync.find_emphasis_at(lines, 1, 9)) -- on c
+    assert.are.equal("a->b", sync.find_emphasis_at(lines, 1, 3)) -- edge still wins on a
+    assert.are.equal("a->b", sync.find_emphasis_at(lines, 1, 10)) -- trailing ; → first edge
+    assert.are.equal("c", sync.find_emphasis_at({ "c; a -> b;" }, 1, 1)) -- node first
+  end)
+
+  it("only a real ; boundary frees a candidate from the edge fallback", function()
+    -- attr candidates have no ; gap → still the edge (parity with the
+    -- attribute-list test above)
+    assert.are.equal("a->b", sync.find_emphasis_at({ "a -> b [color=red];" }, 1, 12))
+    -- a ; INSIDE a quoted label lives in the candidate span, not a gap —
+    -- it can't fake a statement boundary for the trailing candidate
+    assert.are.equal("a->b", sync.find_emphasis_at({ 'a -> b [label="x;y"] z' }, 1, 22))
+    -- ...but a real ; after the attr list does free the standalone node
+    assert.are.equal("z", sync.find_emphasis_at({ 'a -> b [label="x;y"]; z' }, 1, 23))
+  end)
+
+  it("attribute lists after the edge do not break detection", function()
+    assert.are.equal("a->b", sync.find_emphasis_at({ "a -> b [color=red];" }, 1, 12))
+  end)
+
+  it("an arrow INSIDE a quoted attribute value is not an edge", function()
+    -- No edge is detected anywhere on the line (else edge-wins would return a
+    -- key even on x). The quoted value itself stays a plain candidate — the
+    -- documented attr-collection parity limitation, a browser miss ≡ clear.
+    assert.are.equal("x", sync.find_emphasis_at({ 'x [label="a -> b"];' }, 1, 1))
+    assert.are.equal("a -> b", sync.find_emphasis_at({ 'x [label="a -> b"];' }, 1, 12))
+  end)
+
+  it("ports degrade to node resolution (never a wrong edge key)", function()
+    assert.are.equal("rec", sync.find_emphasis_at({ "rec:out -> b;" }, 1, 2))
+  end)
+
+  it("non-edge lines keep the node semantics; empty lines yield nil", function()
+    assert.are.equal("a", sync.find_emphasis_at({ "a [shape=box];" }, 1, 1))
+    assert.is_nil(sync.find_emphasis_at({ "}" }, 1, 1))
+    assert.is_nil(sync.find_emphasis_at(nil, 1, 1))
+  end)
+
+  it("an edge inside a block comment is dead (multi-line state carries)", function()
+    local buf = { "/* open", "a -> b; */ c;", "x -> y;" }
+    assert.are.equal("c", sync.find_emphasis_at(buf, 2, 1))
+    assert.are.equal("x->y", sync.find_emphasis_at(buf, 3, 1))
+  end)
+end)
+
 -- ── echo suppression (Story 6.3, AC3) ────────────────────────────────────────
 
 describe("sync echo suppression — per-buffer one-shot, armed only for watched buffers", function()
@@ -658,7 +743,7 @@ describe("sync.start_cursor_watch / emphasize emission", function()
     assert.are.equal(300, timers_created[#timers_created].delay)
   end)
 
-  it("cursor on a node line emits emphasize with the EXACT 3-key envelope, no v", function()
+  it("cursor on an edge line emits the edge key with the EXACT 3-key envelope, no v", function()
     local cb = editing({ "digraph {", "  a -> b;", "}" }, { 2, 2 }) -- 0-based col 2 → on a
     cb()
     fire_last_timer()
@@ -667,7 +752,8 @@ describe("sync.start_cursor_watch / emphasize emission", function()
     local msg = sent_msgs[1]
     assert.are.equal("emphasize", msg.type)
     assert.are.equal(3, msg.sessionId)
-    assert.are.equal("a", msg.nodeId)
+    -- Edge lines win regardless of column: the edge key rides the nodeId field.
+    assert.are.equal("a->b", msg.nodeId)
     local keys = {}
     for k in pairs(msg) do
       table.insert(keys, k)
@@ -677,7 +763,7 @@ describe("sync.start_cursor_watch / emphasize emission", function()
   end)
 
   it("0-based cursor col converts to the matcher's 1-based col (first byte works)", function()
-    local cb = editing({ "a -> b;" }, { 1, 0 }) -- col 0 = first byte = a
+    local cb = editing({ "a;" }, { 1, 0 }) -- col 0 = first byte = a (node-only line)
     cb()
     fire_last_timer()
     assert.are.equal("a", sent_msgs[1].nodeId)
@@ -716,23 +802,29 @@ describe("sync.start_cursor_watch / emphasize emission", function()
   end)
 
   it("a fresh watch with the cursor already ON a node emphasizes without a move", function()
-    editing({ "a -> b;" }, { 1, 0 })
+    editing({ "a;" }, { 1, 0 })
     assert.are.equal(1, #sent_msgs)
     assert.are.equal("a", sent_msgs[1].nodeId)
+  end)
+
+  it("a fresh watch with the cursor on an EDGE line emphasizes the edge", function()
+    editing({ "a -> b;" }, { 1, 6 }) -- on the ; — any column on the line
+    assert.are.equal(1, #sent_msgs)
+    assert.are.equal("a->b", sent_msgs[1].nodeId)
   end)
 
   it("re-emphasis after a clear works (last-wins through the clear)", function()
     local cb = editing({ "a -> b;", "}" }, { 1, 0 })
     cb()
-    fire_last_timer() -- a
+    fire_last_timer() -- a->b
     state.win_cursor[1001] = { 2, 0 }
     cb()
     fire_last_timer() -- clear
     state.win_cursor[1001] = { 1, 5 }
     cb()
-    fire_last_timer() -- b
+    fire_last_timer() -- back on the edge line
     assert.are.equal(3, #sent_msgs)
-    assert.are.equal("b", sent_msgs[3].nodeId)
+    assert.are.equal("a->b", sent_msgs[3].nodeId)
   end)
 
   it("latest-wins: rapid cursor moves cancel the previous timer", function()
@@ -795,10 +887,10 @@ describe("sync.start_cursor_watch / emphasize emission", function()
   end)
 
   it("buffer visible only in a NON-current window still resolves (win_findbuf fallback)", function()
-    local cb = editing({ "a -> b;" }, { 1, 0 }) -- watch-start emphasizes a
+    local cb = editing({ "a;", "b;" }, { 1, 0 }) -- watch-start emphasizes a
     state.current_win = 2002 -- user focused elsewhere; buffer still shown in 1001
     state.win_bufs[2002] = 99
-    state.win_cursor[1001] = { 1, 5 } -- now on b: only the fallback can see it
+    state.win_cursor[1001] = { 2, 0 } -- now on b: only the fallback can see it
     cb()
     fire_last_timer()
     assert.are.equal(2, #sent_msgs)
@@ -849,12 +941,12 @@ describe("sync.start_cursor_watch / emphasize emission", function()
   end)
 
   it("gate re-read: highlight_on_cursor=false mid-session stops the next fire", function()
-    local cb = editing({ "a -> b;" }, { 1, 0 })
+    local cb = editing({ "a;", "b;" }, { 1, 0 })
     assert.are.equal(1, #sent_msgs, "watch-start reconcile emitted")
 
     -- Mid-session setup() disable: no re-preview, no watcher teardown.
     state.sync_cfg = { highlight_on_cursor = false, cursor_debounce_ms = 150 }
-    state.win_cursor[1001] = { 1, 5 } -- moved onto b
+    state.win_cursor[1001] = { 2, 0 } -- moved onto b
     cb()
     fire_last_timer()
     assert.are.equal(1, #sent_msgs, "gate off: the debounce fire sent nothing")

@@ -8,6 +8,31 @@
 > **Triage (correct-course 2026-06-11):** `→ Story 6.1` / `→ Story 6.4` = pulled into Epic 6
 > (v3 bidirectional sync). See `../planning-artifacts/sprint-change-proposal-2026-06-11.md`.
 
+## Deferred from: spec-cursor-edge-emphasis (2026-07-05)
+
+- Ports degrade to node emphasis: `rec:out -> b;` fails the strict gap test (`:out ` in the gap),
+  so the cursor line resolves to node `rec` instead of the edge — the SVG edge title is
+  `rec:out->b`, so a port-aware key needs the resolver to keep the `:port[:compass]` suffix it
+  currently skips. Deliberate v1 degradation (never a wrong edge); revisit if record-heavy graphs
+  come up in field use. [lua/interactive-graphviz/sync.lua:306]
+- Subgraph endpoints degrade: `{a b} -> c` expands to edges a->c and b->c in the render, but the
+  gap test sees `} -> ` and falls back to node resolution. Emphasizing the expansion set needs
+  statement-level parsing the line scanner deliberately avoids.
+  [lua/interactive-graphviz/sync.lua:331]
+- An edge operator split by an inline comment (`a /* x */ -> b`) is not detected (comment text
+  lands in the gap); degrades to node emphasis.
+- Pan target for an edge is the edge GROUP's bbox (the spline + arrowhead). For extreme layouts
+  (very long edge, endpoint shapes outside the spline bbox) centering the edge may leave an
+  endpoint node off-screen; panning to the union of edge + endpoint bboxes would fix it at the
+  cost of three getBBox reads. [frontend/render.ts:1038]
+- Standalone-node preference on mixed lines requires a `;` boundary: DOT also allows
+  bare-whitespace statement separators (`a -> b c`), where the cursor on `c` still falls back to
+  the line's first edge. Detecting that needs statement-level parsing; degrade is the documented
+  edge-wins fallback, never a wrong node. [lua/interactive-graphviz/sync.lua:324]
+- A node whose literal id contains `->`/`--` is indistinguishable from an edge key on the wire
+  (the browser lights BOTH the same-titled node and any matching edge). Degenerate input,
+  documented; a discriminated field (`edgeId`) would need a protocol bump + server re-release.
+
 ## Deferred from: code review of 6-3-cursor-graph-emphasis (2026-07-02)
 
 - `suppress_next` (echo suppression) is a single module-global, not per-buffer: a click-jump with no

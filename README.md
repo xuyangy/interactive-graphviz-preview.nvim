@@ -17,7 +17,8 @@ runtime** on supported platforms.
 - Interactive preview: zoom/pan with view preservation across reloads,
   click-to-highlight neighbors, live search (`/`), animated transitions.
 - Editor↔graph sync, both directions: click a node to jump to its source
-  line; the node under your cursor is outlined in the preview.
+  line; the node under your cursor is outlined in the preview — on an edge
+  line, the edge and both endpoint nodes light up.
 - `dot` and `neato` layout engines, switchable at runtime.
 - Zero-prerequisite install on supported platforms: a verified prebuilt binary
   is fetched automatically; uncovered platforms fall back to a source build.
@@ -171,12 +172,16 @@ The preview and the DOT buffer stay linked in both directions:
   instead of a wrong jump.
 - **Editor → graph** (gated by `sync.highlight_on_cursor`, default on): rest
   the cursor on a node's line and that node gets a passive blue outline in the
-  preview, debounced by `sync.cursor_debounce_ms`. Moving to a line with no
-  node clears the outline. The outline is deliberately quieter than
+  preview, debounced by `sync.cursor_debounce_ms`. On an edge line (`a -> b`),
+  any cursor position outlines the edge **and both endpoint nodes**; chains
+  (`a -> b -> c`) light the segment under the cursor. Moving to a line with no
+  node or edge clears the outline. The outline is deliberately quieter than
   click-highlight — it never dims the rest of the graph and never fights an
-  active selection. In a large graph, if the node is outside the visible
-  area the view pans to center it (zoom level untouched); a node already on
+  active selection. In a large graph, if the target is outside the visible
+  area the view pans to center it (zoom level untouched); a target already on
   screen never moves the view, so panning around by hand is respected.
+  Constructs the matcher can't resolve to one edge (ports like `a:p -> b`,
+  subgraph endpoints like `{a b} -> c`) fall back to single-node outlining.
 
 One caveat, by design: on a click-jump, **OS window focus stays in the
 browser** — the cursor moves, but the plugin never raises or focuses the
@@ -205,7 +210,7 @@ require("interactive-graphviz").setup({
   },
   sync = {                   -- editor↔graph sync (see "Editor↔graph sync")
     jump_on_click = true,    -- clicking a node moves the Neovim cursor to its source line
-    highlight_on_cursor = true, -- cursor on a node's line outlines it in the preview
+    highlight_on_cursor = true, -- cursor on a node/edge line outlines it in the preview
     cursor_debounce_ms = 150,   -- cursor-sync debounce (ms), > 0
   },
   heartbeat_ms = 2000,       -- supervision heartbeat interval (ms), > 0

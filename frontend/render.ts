@@ -29,6 +29,7 @@ import {
   emptyHighlightSet,
   getHighlightMode,
   parseDotModel,
+  parseEdgeTitle,
   shouldClearHighlight,
   unionHighlight,
   type GraphModel,
@@ -889,6 +890,14 @@ const CURSOR_EMPHASIS_CSS = `
 #app g.node.ig-cursor:not(.ig-selected):not(.ig-neighbor) path {
   stroke: #4fc3f7; stroke-width: 3px;
 }
+/* Edge-line emphasis: the cursor on \`a -> b\` outlines the edge too (its
+   spline + arrowhead), same hue, thinner than the node outline so the ends
+   stay the anchors. Same yield rule: a click/search-owned edge keeps its
+   treatment. Stroke only, like the node rule — never opacity. */
+#app g.edge.ig-cursor:not(.ig-neighbor) path,
+#app g.edge.ig-cursor:not(.ig-neighbor) polygon {
+  stroke: #4fc3f7; stroke-width: 2px;
+}
 `;
 // The optional pulse: stroke-opacity only (the outline breathes; the node's
 // fill/element opacity are untouched). Gated on animationsEnabled() like the
@@ -901,7 +910,9 @@ const CURSOR_PULSE_CSS = `
 }
 #app g.node.ig-cursor:not(.ig-selected):not(.ig-neighbor) ellipse,
 #app g.node.ig-cursor:not(.ig-selected):not(.ig-neighbor) polygon,
-#app g.node.ig-cursor:not(.ig-selected):not(.ig-neighbor) path {
+#app g.node.ig-cursor:not(.ig-selected):not(.ig-neighbor) path,
+#app g.edge.ig-cursor:not(.ig-neighbor) path,
+#app g.edge.ig-cursor:not(.ig-neighbor) polygon {
   animation: ig-cursor-pulse 1.6s ease-in-out infinite;
 }
 `;
@@ -992,45 +1003,71 @@ function applyHighlightToDom(set: HighlightSet): void {
 }
 
 // ── Cursor-echo emphasis (Story 6.3, FR-20) ──────────────────────────────────
-// One node id (or null), fed by the Lua→server→browser `emphasize` message.
-// Deliberately OUTSIDE the Selection/HighlightSet regime: applyHighlightToDom
-// only ever toggles ig-selected/ig-neighbor/ig-dimmed, so the ig-cursor class
-// is additive by construction and the two paths cannot contend.
+// One id (or null), fed by the Lua→server→browser `emphasize` message: a node
+// id, or — when the cursor sits on an edge line — an edge key in the SVG edge
+// <title> form (`a->b` / `a--b`), which lights the edge AND both endpoint
+// nodes. Deliberately OUTSIDE the Selection/HighlightSet regime:
+// applyHighlightToDom only ever toggles ig-selected/ig-neighbor/ig-dimmed, so
+// the ig-cursor class is additive by construction and the two paths cannot
+// contend.
 let _cursorEmphasisNode: string | null = null;
 
 /**
  * Apply (or clear, with null) the passive cursor emphasis. Last-wins: the
- * stored id is re-asserted on the post-render boundary. A nodeId with no
- * matching live node (stale buffer text, not-a-node token) emphasizes nothing
- * — miss ≡ clear, the designed graceful degradation; never an error.
+ * stored id is re-asserted on the post-render boundary. An id matching a live
+ * edge <title> emphasizes that edge plus its endpoint nodes (endpoints via
+ * parseEdgeTitle — the same convention the highlight model uses); an id with
+ * no matching live node OR edge (stale buffer text, not-a-node token)
+ * emphasizes nothing — miss ≡ clear, the designed graceful degradation; never
+ * an error.
  *
- * An emphasized node that is off-screen is panned to the viewport center
- * (panCursorNodeIntoView). This runs on the post-render re-assert too — a
- * live reload that reflows the cursor's node out of view re-centers it, which
- * deliberately outranks preserve_view for that one frame: the user's cursor
- * IS on that node.
+ * An emphasized target that is off-screen is panned to the viewport center
+ * (panCursorNodeIntoView; for an edge the edge group is the pan target — its
+ * bbox spans the run between the endpoints, so centering it frames both
+ * ends). This runs on the post-render re-assert too — a live reload that
+ * reflows the cursor's target out of view re-centers it, which deliberately
+ * outranks preserve_view for that one frame: the user's cursor IS on that
+ * target.
  *
  * Last-wins also governs MOTION: a frame that does not itself pan (clear,
- * miss, node already visible) interrupts any in-flight ig-pan transition, so
- * the view never keeps gliding toward a node the cursor has already left. A
- * frame that DOES pan supersedes the old transition implicitly (d3 named
- * transitions replace each other per element).
+ * miss, target already visible) interrupts any in-flight ig-pan transition,
+ * so the view never keeps gliding toward a target the cursor has already
+ * left. A frame that DOES pan supersedes the old transition implicitly (d3
+ * named transitions replace each other per element).
  */
 export function applyCursorEmphasis(nodeId: string | null): void {
   _cursorEmphasisNode = typeof nodeId === "string" && nodeId.length > 0 ? nodeId : null;
   const app = document.getElementById("app");
   if (!app) return;
   ensureHighlightStyle();
-  let emphasized: Element | null = null;
-  app.querySelectorAll("g.node").forEach((g) => {
-    if (_cursorEmphasisNode !== null && groupTitle(g) === _cursorEmphasisNode) {
+  const key = _cursorEmphasisNode;
+  // Edge pass first: it decides which endpoint nodes the node pass includes.
+  let emphasizedEdge: Element | null = null;
+  app.querySelectorAll("g.edge").forEach((g) => {
+    if (key !== null && groupTitle(g) === key) {
       g.classList.add("ig-cursor");
-      emphasized = g;
+      if (emphasizedEdge === null) emphasizedEdge = g; // multi-edges: all lit, first pans
     } else {
       g.classList.remove("ig-cursor");
     }
   });
-  if (emphasized !== null) panCursorNodeIntoView(emphasized);
+  // Endpoints only when a LIVE edge matched: a key that merely parses as an
+  // edge but matches nothing must not light stray same-named nodes.
+  const ends = emphasizedEdge !== null && key !== null ? parseEdgeTitle(key) : null;
+  let emphasizedNode: Element | null = null;
+  app.querySelectorAll("g.node").forEach((g) => {
+    const title = groupTitle(g);
+    const hit =
+      key !== null && (title === key || (ends !== null && (title === ends.from || title === ends.to)));
+    if (hit) {
+      g.classList.add("ig-cursor");
+      if (emphasizedNode === null) emphasizedNode = g;
+    } else {
+      g.classList.remove("ig-cursor");
+    }
+  });
+  const panTarget = emphasizedEdge ?? emphasizedNode;
+  if (panTarget !== null) panCursorNodeIntoView(panTarget);
   else cancelCursorPan();
 }
 

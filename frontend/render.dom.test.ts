@@ -497,6 +497,57 @@ describe("cursor-echo emphasis (Story 6.3)", () => {
     expect(css).not.toMatch(/ig-cursor[^{}]*\{[^}]*[^-]opacity\s*:/);
     // The precedence law is encoded in the selector: cursor yields to click/search.
     expect(css).toContain(".ig-cursor:not(.ig-selected):not(.ig-neighbor)");
+    // Edge-line emphasis has its own rule, with the same yield law for edges.
+    expect(css).toContain("g.edge.ig-cursor:not(.ig-neighbor)");
+  });
+
+  test("an edge key emphasizes the edge AND both endpoint nodes; last-wins; null clears", () => {
+    applyCursorEmphasis("b->c");
+    expect(classesOf("g-bc")).toEqual(["ig-cursor"]);
+    expect(classesOf("g-b")).toEqual(["ig-cursor"]);
+    expect(classesOf("g-c")).toEqual(["ig-cursor"]);
+    expect(classesOf("g-a")).toEqual([]);
+    expect(classesOf("g-ab")).toEqual([]);
+    expect(_cursorEmphasisSnapshot()).toBe("b->c");
+
+    applyCursorEmphasis("a"); // last-wins back to a plain node, no edge trail
+    expect(classesOf("g-a")).toEqual(["ig-cursor"]);
+    for (const id of ["g-b", "g-c", "g-ab", "g-bc"]) {
+      expect(classesOf(id)).toEqual([]);
+    }
+
+    applyCursorEmphasis("a->b");
+    expect(classesOf("g-ab")).toEqual(["ig-cursor"]);
+    applyCursorEmphasis(null);
+    for (const id of ["g-a", "g-b", "g-c", "g-ab", "g-bc"]) {
+      expect(classesOf(id)).toEqual([]);
+    }
+  });
+
+  test("an edge key with no matching live edge emphasizes nothing — not even nodes", () => {
+    // a->c parses as an edge and both endpoints exist as nodes, but no such
+    // edge is rendered: endpoints must NOT light without their edge (miss ≡ clear).
+    applyCursorEmphasis("a->c");
+    for (const id of ["g-a", "g-b", "g-c", "g-ab", "g-bc"]) {
+      expect(classesOf(id)).toEqual([]);
+    }
+  });
+
+  test("edge emphasis is additive beneath the click-highlight regime", () => {
+    clickOn(el("g-a").querySelector("ellipse")!); // a selected, b neighbor, c + b->c dimmed
+    applyCursorEmphasis("b->c");
+    expect(classesOf("g-bc")).toEqual(["ig-cursor", "ig-dimmed"]);
+    expect(classesOf("g-b")).toEqual(["ig-cursor", "ig-neighbor"]);
+    expect(classesOf("g-c")).toEqual(["ig-cursor", "ig-dimmed"]);
+  });
+
+  test("edge emphasis survives a re-render via the post-render boundary", () => {
+    applyCursorEmphasis("b->c");
+    document.getElementById("app")!.innerHTML = FIXTURE_SVG; // d3 rebuilds the subtree
+    _reapplyHighlightAfterRender();
+    expect(classesOf("g-bc")).toEqual(["ig-cursor"]);
+    expect(classesOf("g-b")).toEqual(["ig-cursor"]);
+    expect(classesOf("g-c")).toEqual(["ig-cursor"]);
   });
 });
 

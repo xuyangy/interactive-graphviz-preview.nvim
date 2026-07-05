@@ -35,7 +35,7 @@ failing setup. >lua
       },
       sync = {                   -- editor<->graph sync
         jump_on_click = true,    -- click node -> cursor jumps to source line
-        highlight_on_cursor = true, -- cursor on node line -> outline it
+        highlight_on_cursor = true, -- cursor on node/edge line -> outline it
         cursor_debounce_ms = 150,   -- cursor-sync debounce (ms), > 0
       },
       heartbeat_ms = 2000,       -- supervision heartbeat interval (ms), > 0
@@ -110,10 +110,15 @@ sync ~
                               Neovim window.
         `highlight_on_cursor` boolean (default `true`). Resting the cursor on
                               a node's line outlines that node in the
-                              preview; a line with no node clears it. If the
-                              node is off-screen the view pans to center it
-                              (same zoom level); an on-screen node never
-                              moves the view.
+                              preview; on an edge line (`a -> b`) the edge
+                              AND both endpoint nodes are outlined, whatever
+                              the column (chains light the segment under the
+                              cursor). A line with no node or edge clears it.
+                              If the target is off-screen the view pans to
+                              center it (same zoom level); an on-screen
+                              target never moves the view. Ports and
+                              subgraph endpoints fall back to single-node
+                              outlining.
         `cursor_debounce_ms`  positive integer (default `150`). Debounce for
                               the cursor->graph direction, in milliseconds.
 

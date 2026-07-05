@@ -38,6 +38,12 @@ Preview and the Neovim cursor. Both directions are config-gated and on by defaul
   a subtle pulse that is animation-gated (respects `animate = false` and reduced-motion);
   precedence encoded in CSS via `:not(.ig-selected):not(.ig-neighbor)` so search/click emphasis
   always wins over the cursor echo.
+- **Extension (2026-07-05, `spec-cursor-edge-emphasis.md`):** an EDGE line (`a -> b;`) emphasizes
+  the edge **and both endpoint nodes**, whatever the cursor column; chains light the segment under
+  the cursor. The edge key rides the existing `emphasize.nodeId` string in the SVG edge-`<title>`
+  form (`a->b` / `a--b`) — no wire or server change. Same treatment laws (stroke-only, thinner 2px
+  edge stroke, pulse-gated, yields to click/search). Ports / subgraph endpoints / comment-split
+  operators degrade to the single-node emphasis above — never a wrong edge.
 
 ## Anti-feedback rule
 
@@ -48,6 +54,8 @@ on the sync-initiated CursorMoved. The user sees: click → highlight (browser) 
 ## Non-goals (this surface, v3)
 
 - No reverse text editing from the Preview — the browser never mutates the buffer.
-- No edge-click or cluster-click jump — nodes only in v3; revisit after field feedback.
+- No edge-click or cluster-click jump — nodes only in v3; revisit after field feedback. (Applies
+  to the graph→buffer CLICK direction only; the buffer→graph cursor echo covers edge lines as of
+  the 2026-07-05 extension above.)
 - No focus raising of either window.
 - No theming — still deferred.
