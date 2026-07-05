@@ -1,6 +1,9 @@
 dist/
 node_modules/
 .bun/
+# Playwright run artifacts (tests/browser)
+test-results/
+playwright-report/
 .luarocks/
 luacov.*
 *.log

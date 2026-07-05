@@ -49,6 +49,27 @@ jobs:
       - name: Frontend unit tests (DOT helpers, view-state, reset keybinding)
         run: bun test frontend
 
+  # Real-browser smoke (tests/browser): the ONLY coverage of the actual WASM
+  # layout/render path — everything else runs under happy-dom. One Chromium
+  # test: real server, real preview page, one render, one interaction. Kept as
+  # a separate job so the browser install never slows the main gate.
+  browser-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - name: Install Bun dependencies
+        run: |
+          bun install --cwd frontend --frozen-lockfile
+          bun install --cwd server --frozen-lockfile
+          bun install --cwd tests/browser --frozen-lockfile
+      - name: Install Playwright Chromium
+        working-directory: tests/browser
+        run: npx playwright install --with-deps chromium
+      - name: Browser smoke test
+        working-directory: tests/browser
+        run: npx playwright test
+
   # Windows no-orphan verification (Story 4.1 AC4 / Epic-3 retro AI#2). Closes the
   # "Windows no-orphan unverified" gap: the shipped server-windows-x64.exe prebuilt
   # must self-terminate when the parent Neovim dies. Two layers:
