@@ -124,10 +124,13 @@ export function isStaticExportPage(): boolean {
  * corrupt exported file from falling through to the live WebSocket boot:
  * under file:// `location.host` is empty, so the WebSocket constructor would
  * throw synchronously and take the page down instead of failing inert.
+ * Own-property check, not `!== undefined`: a hand-corrupted
+ * `window.__igExport = undefined` is still a present marker (corrupt export),
+ * not a live preview.
  */
 export function hasExportMarker(): boolean {
   if (typeof window === "undefined") return false;
-  return (window as unknown as { __igExport?: unknown }).__igExport !== undefined;
+  return Object.prototype.hasOwnProperty.call(window, "__igExport");
 }
 
 /**

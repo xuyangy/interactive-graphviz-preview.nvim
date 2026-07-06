@@ -113,17 +113,21 @@ export function applyHighlightToDom(set: HighlightSet): void {
   if (appElement() === null) return;
   ensureAppStyle();
 
-  const anySelected = set.selected.size > 0;
+  // The dim regime engages when ANYTHING is emphasized. Click-highlight always
+  // populates `selected`, but an edge-only search match (scope "edges", or a
+  // query matching only edge keys) carries edges with an empty `selected` —
+  // gating on selected alone left those matches counted but invisible.
+  const anyHighlight = set.selected.size > 0 || set.edges.size > 0;
   nodeEntries().forEach(({ el: g, title: name }) => {
     g.classList.remove("ig-selected", "ig-neighbor", "ig-dimmed");
-    if (!anySelected) return; // cleared state: no classes, full opacity
+    if (!anyHighlight) return; // cleared state: no classes, full opacity
     if (set.selected.has(name)) g.classList.add("ig-selected");
     else if (set.nodes.has(name)) g.classList.add("ig-neighbor");
     else g.classList.add("ig-dimmed");
   });
   edgeEntries().forEach(({ el: g, title }) => {
     g.classList.remove("ig-neighbor", "ig-dimmed");
-    if (!anySelected) return;
+    if (!anyHighlight) return;
     // Edge <title> text is exactly the EdgeKey form (A->B / A--B).
     if (set.edges.has(title)) g.classList.add("ig-neighbor");
     else g.classList.add("ig-dimmed");

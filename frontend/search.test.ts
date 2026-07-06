@@ -231,6 +231,16 @@ describe("searchResultToHighlightSet (AC1, AC2, AC5 — shared regime)", () => {
     // selected is populated so applyHighlightToDom's dim regime engages
     expect(set.selected.size).toBeGreaterThan(0);
   });
+
+  test("edge-only matches → non-empty edges with EMPTY selected (regime must engage on edges)", () => {
+    const r = computeSearchMatches(fixture(), "alpha", OPTS({ scope: "edges" }));
+    const set = searchResultToHighlightSet(r);
+    // This is the shape applyHighlightToDom must treat as an active highlight:
+    // gating on selected alone left edge-only matches counted but invisible.
+    expect(set.edges.size).toBeGreaterThan(0);
+    expect(set.selected.size).toBe(0);
+    expect(set.nodes.size).toBe(0);
+  });
 });
 
 describe("shouldOpenSearch (AC1 — /-open predicate)", () => {

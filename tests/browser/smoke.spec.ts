@@ -185,4 +185,24 @@ test("preview renders a real graph and click-highlight works", async ({ page }) 
     )
     .toContain("ig-dimmed");
   await expect(nodeD).toHaveClass(/ig-selected/);
+
+  // Error recovery keeps the interaction state: a broken DOT shows the error
+  // overlay and the fallback render restores the last good graph — with the
+  // ACTIVE click selection re-applied to it (the recovery render rebuilds the
+  // SVG subtree; without the post-recovery reapply, d's highlight vanished
+  // while its selection state stayed active). Node d is still selected from
+  // the config_update leg above.
+  proc.stdin!.write(
+    `${JSON.stringify({
+      type: "render",
+      sessionId: 1,
+      dot: "digraph { a -> }", // dangling edge: guaranteed parse error
+      engine: "dot",
+      v: 3,
+    })}\n`,
+  );
+  await expect(page.locator("#ig-error-overlay")).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator("#app svg g.node")).toHaveCount(4); // last good graph restored
+  await expect(nodeD).toHaveClass(/ig-selected/, { timeout: 5_000 });
+  await expect(nodeC).toHaveClass(/ig-dimmed/);
 });

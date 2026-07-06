@@ -229,38 +229,23 @@ export function computeSearchMatches(
 // ── Bridge to the shared highlight regime (AC1, AC5) ──────────────────────────
 // Search matches must flow through the SAME applyHighlightToDom / ig-* classes
 // as click-highlight (no parallel ig-search-* classes that stack and fight).
-// A SearchResult maps to a HighlightSet: matches → `ig-neighbor` emphasis
-// (matched nodes go in `nodes`, matched edges in `edges`), non-matches → dimmed.
-// `selected` stays empty so search matches read as the "neighbor" emphasis
-// treatment (a lighter accent), distinct from a click's bold Selected node, and
-// applyHighlightToDom's `anySelected` gate keys off selected.size — so we put a
-// match into `selected` only when there are matches, to engage the dim regime
-// while keeping the per-match class as `ig-neighbor`.
+// A SearchResult maps to a HighlightSet: matched nodes go in BOTH `selected`
+// (which engages the dim regime) and `nodes`; matched edges in `edges` — the
+// applier's regime also engages on edges alone, so an edge-only match (scope
+// "edges") still dims non-matches instead of silently changing nothing.
 
 /**
  * Convert a SearchResult into a HighlightSet for the shared DOM applier.
  *
- * Matched nodes/edges become `nodes`/`edges` (rendered `ig-neighbor`,
- * emphasized); non-matches dim. To engage applyHighlightToDom's dim regime
- * (which keys off `selected.size > 0`) WITHOUT promoting any match to the bold
- * `ig-selected` treatment, we leave `selected` empty when there are no matches
- * (cleared state, full opacity) and otherwise rely on the matched nodes being in
- * `nodes` only. applyHighlightToDom dims an element when `anySelected` is true
- * and it is not in `nodes`/`edges`; an empty query yields an empty set → cleared.
+ * Matched nodes/edges become emphasized (`ig-selected`/`ig-neighbor`);
+ * non-matches dim — exactly the matches, nothing else, so the visual set
+ * always corresponds to the N/total counter. An empty query or zero matches
+ * yields the empty set → cleared state, full opacity (AC2).
  */
 export function searchResultToHighlightSet(result: SearchResult): HighlightSet {
-  // Empty query OR zero matches → cleared state (no dimming, full opacity) per
-  // AC2 ("an empty query or zero matches reads 0/total and dims nothing").
   if (result.empty || result.count === 0) {
     return emptyHighlightSet();
   }
-  // Matches present: emphasize matches as neighbors, dim the rest. We must
-  // engage applyHighlightToDom's dim regime, which gates on `selected.size > 0`.
-  // Put the matched nodes into `selected` as well so the gate engages — but only
-  // when there is no node match do we need a different lever. Simplest robust
-  // approach: mark matched nodes in BOTH `nodes` and `selected` so the gate is
-  // on; matched edges in `edges`. (ig-selected vs ig-neighbor on a node is a
-  // stroke-weight nuance; for search, emphasizing matches is the requirement.)
   return {
     nodes: new Set(result.nodes),
     edges: new Set(result.edges),

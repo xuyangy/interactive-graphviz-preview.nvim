@@ -180,10 +180,11 @@ async function renderDotWithFallback(dot: string, engine: string): Promise<void>
   // No-op when preserve_view=false (AC3) or when nothing was captured.
   restoreViewState(zoomAccessor(), captured);
   // Story 5.2 AC4 — re-derive + re-apply the active highlight against the NEW
-  // SVG. This runs on the per-render SUCCESS boundary only (never inside the
-  // fallback-recovery render in onError), so it cannot introduce a second
-  // concurrent d3 DOM mutation race on #app. It also re-binds the delegated
-  // click listener (idempotent) since d3-graphviz rebuilds the #app subtree.
+  // SVG. This runs after the render has fully settled ("end" fired) — the
+  // fallback-recovery render in onError does the same on ITS success — so it
+  // cannot introduce a second concurrent d3 DOM mutation race on #app. It also
+  // re-binds the delegated click listener (idempotent) since d3-graphviz
+  // rebuilds the #app subtree.
   reapplyHighlightAfterRender();
 }
 
@@ -588,9 +589,20 @@ const _queue = createRenderQueue(renderDotWithFallback, {
         // Story 5.4 (Task 2): the recovery render is INSTANT (animate=false) —
         // it is a correction, not a user-driven re-render, so we never stack a
         // transition on top of the error teardown / concurrent d3 DOM mutation.
-        renderDot(dot, engine, false).catch((fallbackErr: unknown) => {
-          console.warn("interactive-graphviz: fallback render failed", fallbackErr);
-        });
+        renderDot(dot, engine, false)
+          .then(() => {
+            // The recovery render rebuilt the #app subtree like any success:
+            // re-derive click selection / search highlight / cursor emphasis
+            // against it, or the restored graph comes back bare while that
+            // state is still active. Safe to run here — renderDot resolved on
+            // "end", so the error teardown and the recovery's own mutations
+            // are complete (the concurrency concern is the render itself,
+            // not this DOM-only class pass).
+            reapplyHighlightAfterRender();
+          })
+          .catch((fallbackErr: unknown) => {
+            console.warn("interactive-graphviz: fallback render failed", fallbackErr);
+          });
       }, 0);
     }
   },

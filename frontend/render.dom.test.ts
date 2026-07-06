@@ -467,6 +467,20 @@ describe("live search DOM (Story 5.3)", () => {
     expect(classesOf("g-a")).toEqual([]);
   });
 
+  test("edge-only matches (scope edges) emphasize the edge and dim the rest", () => {
+    openSearch();
+    (document.getElementById("ig-search-scope") as HTMLSelectElement).value = "edges";
+    typeQuery("a"); // matches edge a->b only, of the 2 edges in scope
+    expect(counterText()).toBe("1/2");
+    // The matched edge is visibly emphasized — this used to be counted but
+    // invisible (the dim regime only engaged on selected NODES).
+    expect(classesOf("g-ab")).toEqual(["ig-neighbor"]);
+    expect(classesOf("g-bc")).toEqual(["ig-dimmed"]);
+    for (const id of ["g-a", "g-b", "g-c"]) {
+      expect(classesOf(id)).toEqual(["ig-dimmed"]);
+    }
+  });
+
   test("an invalid regex surfaces the error indication and never dims (AC3)", () => {
     openSearch();
     const regexToggle = document.getElementById("ig-search-regex") as HTMLInputElement;
@@ -956,6 +970,10 @@ describe("save-as-interactive-HTML export (view toolbar)", () => {
     expect(readExportPayload()).toBeNull();
     // This pair (marker present, payload null) is what main.ts maps to the
     // corrupt-export error branch instead of the live WebSocket boot.
+    // Own-property, not value: even `= undefined` is a marker (corrupt
+    // export), never a live-boot fall-through.
+    w.__igExport = undefined;
+    expect(hasExportMarker()).toBe(true);
   });
 
   test("an exported page's toolbar omits the save-as-HTML button (4 buttons)", () => {
