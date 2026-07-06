@@ -1,12 +1,8 @@
 import type { ProtocolMessage } from "./protocol";
 import { createWebSocketClient } from "./ws";
-import {
-  queueRender,
-  installResetKeybinding,
-  installInteractionHandlers,
-  installSearchHandlers,
-  applyCursorEmphasis,
-} from "./render";
+import { queueRender, installResetKeybinding } from "./render";
+import { installInteractionHandlers, applyCursorEmphasis } from "./emphasis";
+import { installSearchHandlers } from "./search-ui";
 import {
   showError,
   showEmptyNotice,

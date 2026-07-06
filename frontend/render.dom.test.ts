@@ -6,24 +6,28 @@ GlobalRegistrator.register();
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
-  _cursorEmphasisSnapshot,
-  _reapplyHighlightAfterRender,
-  _resetHighlightState,
-  _resetSearchState,
-  _searchIsOpen,
-  _selectionSnapshot,
   _setLastGoodDot,
-  applyCursorEmphasis,
-  closeSearch,
   cursorPanNeeded,
   intersectRects,
   viewCenterInViewBox,
-  handleHighlightKeydown,
-  handleSearchKeydown,
-  installInteractionHandlers,
-  openSearch,
   zoomBy,
 } from "./render";
+import {
+  _cursorEmphasisSnapshot,
+  _reapplyHighlightAfterRender,
+  _resetHighlightState,
+  _selectionSnapshot,
+  applyCursorEmphasis,
+  handleHighlightKeydown,
+  installInteractionHandlers,
+} from "./emphasis";
+import {
+  _resetSearchState,
+  _searchIsOpen,
+  closeSearch,
+  handleSearchKeydown,
+  openSearch,
+} from "./search-ui";
 import {
   extractModelFromApp,
   invalidateGraphDom,
