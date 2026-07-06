@@ -258,4 +258,27 @@ describe("currentConfigSearch (export-time effective config)", () => {
     expect(getSearchConfig()).toEqual({ scope: "edges", caseSensitive: true, regex: false });
     expect(getJumpOnClick()).toBe(false);
   });
+
+  test("unparseable booleans are never recorded — the export carries only values in force", () => {
+    // animate=1 was applied; the later garbage value makes no setter call, so
+    // the accumulator must keep the value actually in force — recording the
+    // raw "banana" would boot the exported page on the DEFAULT instead.
+    applyUrlConfig("?animate=1");
+    setAnimate(false); // ensure the recorded "1" is what re-applies, observably
+    applyUrlConfig("?animate=banana&search_case=true&preserve_view=2");
+    const params = new URLSearchParams(currentConfigSearch());
+    expect(params.get("animate")).toBe("1"); // garbage overlay ignored
+    expect(params.get("search_case")).toBeNull(); // "true" is not the wire encoding
+    expect(params.get("preserve_view")).toBeNull();
+  });
+
+  test("booleans re-encode canonically; enum strings pass through raw (setters clamp)", () => {
+    applyConfigObject({ animate: "0", highlight_mode: "not-a-mode" });
+    const params = new URLSearchParams(currentConfigSearch());
+    expect(params.get("animate")).toBe("0");
+    // Raw enum garbage stays: the exported page's setter clamps it to the
+    // default exactly like the live page did — behavior stays identical.
+    expect(params.get("highlight_mode")).toBe("not-a-mode");
+    expect(getHighlightMode()).toBe("bidirectional");
+  });
 });

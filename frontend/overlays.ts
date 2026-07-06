@@ -39,7 +39,10 @@ export function showError(err: unknown, v: number): void {
     overlay.style.cssText =
       `position:fixed;top:8px;right:${VIEW_TOOLBAR_CLEARANCE_PX}px;background:var(--ig-error-bg);` +
       "color:var(--ig-error-fg);padding:6px 10px;border-radius:4px;font-size:13px;" +
-      "font-family:monospace;z-index:9999;pointer-events:none;max-width:50vw;word-break:break-all;";
+      // pre-wrap: multi-line Graphviz parse errors keep their line breaks and
+      // alignment (default whitespace collapsing flattened them).
+      "font-family:monospace;z-index:9999;pointer-events:none;max-width:50vw;" +
+      "word-break:break-all;white-space:pre-wrap;";
     document.body.appendChild(overlay);
   }
   overlay.textContent = text;

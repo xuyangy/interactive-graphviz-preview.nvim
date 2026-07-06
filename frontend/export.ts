@@ -5,6 +5,7 @@
 // DOT comes through render.ts's lastGoodRenderState() accessor. render.ts
 // remains the only module that imports d3-graphviz.
 
+import { showError } from "./overlays";
 import { lastGoodRenderState } from "./render";
 import { currentConfigSearch } from "./urlconfig";
 
@@ -176,7 +177,9 @@ export function assembleInteractiveHtml(bundleSource: string, payload: ExportPay
  * via its <script src>. Silent no-op before the first successful render or
  * when no external bundle script exists (i.e. inside an exported page, where
  * the button is hidden anyway); guarded so a fetch/Blob quirk can never take
- * the preview down.
+ * the preview down — but a fetch that FAILS surfaces on the error overlay,
+ * because the user just clicked a button and deserves better than a silent
+ * nothing.
  */
 export async function saveInteractiveHtml(): Promise<void> {
   try {
@@ -192,11 +195,22 @@ export async function saveInteractiveHtml(): Promise<void> {
       // per-session auth token out of the shareable file, as before.
       search: currentConfigSearch(),
     };
-    const bundleScript = document.querySelector<HTMLScriptElement>("script[src]");
+    // Prefer the app's own module bundle over an arbitrary script[src]: a
+    // browser extension or injected tool can add a classic script before the
+    // app's, and inlining THAT would produce a broken standalone file. The
+    // skeleton (index.html / bun's build output) carries exactly one
+    // type="module" script; the bare [src] fallback keeps a nonstandard
+    // embedding working.
+    const bundleScript =
+      document.querySelector<HTMLScriptElement>('script[type="module"][src]') ??
+      document.querySelector<HTMLScriptElement>("script[src]");
     if (!bundleScript) return;
     const resp = await fetch(bundleScript.src);
     if (!resp.ok) {
+      // Surface the failure — with only a console.warn, the toolbar button
+      // silently "does nothing" unless devtools are open.
       console.warn("interactive-graphviz: bundle fetch failed", resp.status);
+      showError(`export failed — could not fetch the app bundle (HTTP ${resp.status})`, 0);
       return;
     }
     const html = assembleInteractiveHtml(await resp.text(), payload);
@@ -212,5 +226,6 @@ export async function saveInteractiveHtml(): Promise<void> {
     URL.revokeObjectURL(url);
   } catch (err) {
     console.warn("interactive-graphviz: saveInteractiveHtml failed", err);
+    showError(`export failed — ${err instanceof Error ? err.message : String(err)}`, 0);
   }
 }

@@ -166,8 +166,11 @@ html.ig-motion #app g.edge.ig-cursor:not(.ig-neighbor) polygon {
   animation: ig-cursor-pulse 1.6s ease-in-out infinite;
 }
 
-/* ── Search box (Story 5.3) ──────────────────────────────────────────────── */
-#ig-search-box { position:fixed; top:8px; left:50%; transform:translateX(-50%);
+/* ── Search box (Story 5.3) ──────────────────────────────────────────────────
+   Bottom-center (vim's `/` lives at the bottom): the top-center slot belongs
+   to the disconnect notice (overlays.ts) — anchoring both there made them
+   collide when the connection dropped mid-search. */
+#ig-search-box { position:fixed; bottom:8px; left:50%; transform:translateX(-50%);
   background:var(--ig-panel-bg); color:var(--ig-panel-fg); padding:6px 8px; border-radius:6px;
   font-size:13px; font-family:monospace; z-index:9999; pointer-events:auto;
   display:flex; align-items:center; gap:8px; box-shadow:var(--ig-shadow);

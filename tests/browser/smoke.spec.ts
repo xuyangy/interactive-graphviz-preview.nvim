@@ -63,13 +63,12 @@ test("preview renders a real graph and click-highlight works", async ({ page }) 
     })}\n`,
   );
 
-  // animate=false is the real config param commands.lua would append for
-  // setup{animate=false} — determinism for the click below (Playwright's
-  // actionability check waits for a stable bounding box, and the d3 render
-  // transition otherwise keeps the nodes in motion).
-  await page.goto(
-    `http://127.0.0.1:${ready.port}/?sessionId=1&token=${ready.token}&animate=false`,
-  );
+  // animate=0 is the real wire encoding commands.lua appends for
+  // setup{animate=false} (urlconfig booleans accept exactly "1"/"0") —
+  // determinism for the click below (Playwright's actionability check waits
+  // for a stable bounding box, and the d3 render transition otherwise keeps
+  // the nodes in motion).
+  await page.goto(`http://127.0.0.1:${ready.port}/?sessionId=1&token=${ready.token}&animate=0`);
 
   // The real WASM layout produced a real SVG: all three nodes exist as
   // graphviz-shaped groups. Generous timeout — first render loads the WASM.

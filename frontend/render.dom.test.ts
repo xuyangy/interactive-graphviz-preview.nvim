@@ -29,7 +29,9 @@ import {
   closeSearch,
   handleSearchKeydown,
   openSearch,
+  syncSearchControls,
 } from "./search-ui";
+import { _resetSearchConfig, setSearchConfig } from "./search";
 import {
   extractModelFromApp,
   invalidateGraphDom,
@@ -112,6 +114,7 @@ beforeEach(() => {
 
 afterEach(() => {
   _resetSearchState();
+  _resetSearchConfig();
   _resetHighlightState();
   _setLastGoodDot(null);
   _resetSync();
@@ -199,6 +202,20 @@ describe("click-to-highlight DOM emphasis (Story 5.2)", () => {
     // A later plain click drops the augmentation: c dims again.
     clickOn(el("g-a").querySelector("ellipse")!);
     expect(classesOf("g-c")).toEqual(["ig-dimmed"]);
+  });
+
+  test("cluster model clears when the DOT source goes away (no stale members)", () => {
+    _setLastGoodDot(FIXTURE_DOT);
+    _reapplyHighlightAfterRender();
+    clickOn(el("g-a").querySelector("ellipse")!, { altKey: true });
+    expect(classesOf("g-c")).toEqual(["ig-neighbor"]); // cluster augment active
+
+    // The DOT source disappears (seam cleared): the next render boundary must
+    // drop the previous graph's cluster members, not keep them as stale state.
+    _setLastGoodDot(null);
+    _reapplyHighlightAfterRender();
+    clickOn(el("g-a").querySelector("ellipse")!, { altKey: true });
+    expect(classesOf("g-c")).toEqual(["ig-dimmed"]); // no phantom cluster_g
   });
 });
 
@@ -352,6 +369,15 @@ describe("error overlay + empty-buffer notice (Story 1.6 / Epic 4)", () => {
     expect(_overlayElement()!.textContent).toBe(`DOT parse error (v1): ${"x".repeat(200)}…`);
   });
 
+  test("multi-line messages keep their line breaks (white-space: pre-wrap)", () => {
+    showError("line one\n  indented line two", 2);
+    const overlay = _overlayElement()!;
+    // textContent preserves the raw newline; pre-wrap makes the browser
+    // RENDER it (default whitespace handling collapses it visually).
+    expect(overlay.textContent).toContain("\n  indented");
+    expect(overlay.style.whiteSpace).toBe("pre-wrap");
+  });
+
   test("error overlay and empty notice are mutually exclusive", () => {
     showEmptyNotice(3);
     expect(_emptyNoticeElement()!.textContent).toContain("nothing to render (v3)");
@@ -478,6 +504,59 @@ describe("live search DOM (Story 5.3)", () => {
     expect(_searchIsOpen()).toBe(true);
     // Input is focused now — a second `/` must not be swallowed (it's typing).
     expect(handleSearchKeydown(new KeyboardEvent("keydown", { key: "/", cancelable: true }))).toBe(false);
+  });
+
+  test("syncSearchControls pushes new search_* config into an existing box and re-runs the search", () => {
+    openSearch();
+    typeQuery("A"); // case-insensitive default: matches node a + edge a->b
+    expect(counterText()).toBe("2/5");
+
+    // A live config_update landed (main.ts applies the setters, then calls
+    // syncSearchControls) — without the sync, the box's DOM toggle state
+    // shadows the new config and visible behavior stays stale.
+    setSearchConfig({ caseSensitive: true, scope: "nodes" });
+    syncSearchControls();
+
+    expect((document.getElementById("ig-search-case") as HTMLInputElement).checked).toBe(true);
+    expect((document.getElementById("ig-search-scope") as HTMLSelectElement).value).toBe("nodes");
+    // Re-run under the new options: "A" no longer matches case-sensitively,
+    // and the total narrowed to the 3 nodes.
+    expect(counterText()).toBe("0/3");
+    expect(classesOf("g-a")).toEqual([]); // zero matches dim nothing
+  });
+
+  test("syncSearchControls with no box built is a no-op; a closed box still syncs for next open", () => {
+    setSearchConfig({ regex: true });
+    expect(() => syncSearchControls()).not.toThrow(); // no box yet
+
+    openSearch();
+    closeSearch();
+    setSearchConfig({ regex: false, scope: "edges" });
+    syncSearchControls(); // box exists but closed: controls sync, no search runs
+    expect((document.getElementById("ig-search-regex") as HTMLInputElement).checked).toBe(false);
+    expect((document.getElementById("ig-search-scope") as HTMLSelectElement).value).toBe("edges");
+    expect(_searchIsOpen()).toBe(false);
+  });
+
+  test("document-level Esc closes an open search instead of clearing the click selection", () => {
+    clickOn(el("g-b").querySelector("ellipse")!);
+    openSearch();
+    typeQuery("c");
+    // Focus is NOT on the text input (e.g. the user just changed scope by
+    // mouse) — the input's own Esc handler is out of the picture.
+    (document.getElementById("ig-search-scope") as HTMLSelectElement).focus();
+
+    // Handlers in main.ts registration order: highlight first, then search.
+    const esc = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    expect(handleHighlightKeydown(esc)).toBe(false); // defers while search is open
+    expect(handleSearchKeydown(esc)).toBe(true); // closes search
+    expect(_searchIsOpen()).toBe(false);
+    expect(_selectionSnapshot()).toEqual(["b"]); // selection survives the first Esc
+    expect(classesOf("g-b")).toEqual(["ig-selected"]);
+
+    // Second Esc (search now closed) clears the highlight as before.
+    expect(handleHighlightKeydown(new KeyboardEvent("keydown", { key: "Escape" }))).toBe(true);
+    expect(_selectionSnapshot()).toEqual([]);
   });
 
   test("search re-derives matches against the new SVG on the post-render boundary (AC5)", () => {
@@ -883,6 +962,44 @@ describe("save-as-interactive-HTML export (view toolbar)", () => {
     document.body.innerHTML = `<div id="app"></div>`;
     await expect(saveInteractiveHtml()).resolves.toBeUndefined();
     expect(document.querySelector("a[download]")).toBeNull();
+  });
+
+  test("saveInteractiveHtml fetches the app's module bundle, not an injected classic script", async () => {
+    _setLastGoodDot("digraph { a -> b }");
+    // A browser extension / injected tool added a classic script BEFORE the
+    // app's module bundle — the export must still inline the right one.
+    document.body.innerHTML =
+      `<div id="app">${FIXTURE_SVG}</div>` +
+      `<script src="http://127.0.0.1/injected.js"></script>` +
+      `<script type="module" src="http://127.0.0.1/app.js"></script>`;
+    const fetched: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: unknown) => {
+      fetched.push(String(url));
+      return new Response("var app = 1;", { status: 200 });
+    }) as typeof fetch;
+    try {
+      await saveInteractiveHtml();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(fetched).toEqual(["http://127.0.0.1/app.js"]);
+  });
+
+  test("a failed bundle fetch surfaces on the error overlay, not just the console", async () => {
+    _setLastGoodDot("digraph { a }");
+    document.body.innerHTML =
+      `<div id="app"></div><script type="module" src="http://127.0.0.1/app.js"></script>`;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("nope", { status: 500 })) as typeof fetch;
+    try {
+      await saveInteractiveHtml();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    // The user clicked a toolbar button — a silent nothing is not feedback.
+    expect(_overlayElement()).not.toBeNull();
+    expect(_overlayElement()!.textContent).toContain("HTTP 500");
   });
 });
 

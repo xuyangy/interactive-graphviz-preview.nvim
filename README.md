@@ -22,8 +22,10 @@ runtime** on supported platforms.
 - Dark mode: the preview follows your OS/browser color scheme
   (`prefers-color-scheme`) — canvas, toolbar, search box, and notices theme
   together, and Graphviz's default black-on-white graph colors are remapped
-  in dark mode while colors you set in DOT (`color=`, `fontcolor=`,
-  `bgcolor=`) are left exactly as written.
+  in dark mode while non-default colors you set in DOT (`color=`,
+  `fontcolor=`, `bgcolor=`) are left exactly as written. (An explicit
+  `color=black` or `bgcolor=white` is indistinguishable from the default in
+  the SVG output, so it is remapped like the default.)
 - `dot` and `neato` layout engines, switchable at runtime.
 - Zero-prerequisite install on supported platforms: a verified prebuilt binary
   is fetched automatically; uncovered platforms fall back to a source build.
@@ -242,9 +244,9 @@ config. (They still ride the preview URL too, so a preview opened later starts
 with the same values.) Server-level keys (`port`, `expose_to_lan`,
 `heartbeat_ms`) still take effect on the next server start.
 
-The sync keys split across that line: `sync.jump_on_click` rides the preview
-URL like the interactivity keys (applies at preview open; a tab reload
-re-applies the value baked into the URL), while `sync.highlight_on_cursor` and
+The sync keys split across that line: `sync.jump_on_click` is one of the
+live-pushed interactivity keys above (a `setup()` re-run applies it to open
+previews immediately), while `sync.highlight_on_cursor` and
 `sync.cursor_debounce_ms` are read on the Neovim side — a `setup()` change
 applies from the next cursor movement, no re-open needed. One nuance when
 turning `highlight_on_cursor` off mid-session: new outlines stop immediately,

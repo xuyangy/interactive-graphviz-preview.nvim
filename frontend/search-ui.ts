@@ -32,6 +32,7 @@ import { ensureAppStyle } from "./style";
 import {
   applyHighlightToDom,
   recomputeAndApplyHighlight,
+  setSearchOpenProbe,
   setSearchReapplyHook,
 } from "./emphasis";
 
@@ -207,12 +208,27 @@ export function closeSearch(): void {
   recomputeAndApplyHighlight();
 }
 
-/** Handle a document-level keydown for `/`-to-open search (AC1). */
+/**
+ * Handle a document-level keydown: `/` opens search (AC1); while search is
+ * open, an un-modified Esc closes it from ANYWHERE — the toggles, the scope
+ * select, the canvas — not just from the text input (whose own keydown
+ * handler closes-and-stops-propagation before this document listener sees
+ * it). Without the close branch, Esc with focus on the scope select fell
+ * through to the click-highlight clear (shouldClearHighlight only skips
+ * INPUT/TEXTAREA), and Esc on a checkbox did nothing at all.
+ */
 export function handleSearchKeydown(e: KeyboardEvent): boolean {
-  if (!shouldOpenSearch(e, document.activeElement?.tagName)) return false;
-  e.preventDefault(); // don't type the slash into anything / trigger find
-  openSearch();
-  return true;
+  if (shouldOpenSearch(e, document.activeElement?.tagName)) {
+    e.preventDefault(); // don't type the slash into anything / trigger find
+    openSearch();
+    return true;
+  }
+  if (_searchOpen && shouldCloseSearch(e)) {
+    e.preventDefault();
+    closeSearch();
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -243,11 +259,39 @@ function reapplySearchAfterRender(): boolean {
   return true;
 }
 
+/**
+ * Re-sync the search box controls from the in-memory search config (plan item
+ * #3 follow-up): a live config_update changes getSearchConfig(), but
+ * currentSearchOpts() prefers the box's DOM toggle state and buildSearchBox()
+ * returns an existing box untouched — so without this, a pushed search_*
+ * change was invisible while the box existed. Called by main.ts's
+ * onConfigUpdate; re-runs the search when the box is open so the new options
+ * take effect immediately. No box built yet → nothing to sync (buildSearchBox
+ * reads getSearchConfig() at build time).
+ */
+export function syncSearchControls(): void {
+  const box = document.getElementById(SEARCH_BOX_ID);
+  if (!box) return;
+  const opts = getSearchConfig();
+  const caseEl = box.querySelector<HTMLInputElement>("#ig-search-case");
+  if (caseEl) caseEl.checked = opts.caseSensitive;
+  const regexEl = box.querySelector<HTMLInputElement>("#ig-search-regex");
+  if (regexEl) regexEl.checked = opts.regex;
+  const scopeEl = box.querySelector<HTMLSelectElement>("#ig-search-scope");
+  if (scopeEl) scopeEl.value = opts.scope;
+  if (_searchOpen) runSearch();
+}
+
 // Register the post-render precedence hook with emphasis.ts at module init —
 // the search-ui → emphasis import direction keeps the graph acyclic, and the
 // hook's no-op default means emphasis works standalone if this module is
 // never loaded.
 setSearchReapplyHook(reapplySearchAfterRender);
+
+// Register the search-open probe: while the box is open, the document-level
+// click-highlight Esc-clear defers to search (handleSearchKeydown closes the
+// box instead). Same acyclic-seam idiom as the reapply hook above.
+setSearchOpenProbe(() => _searchOpen);
 
 // ── Search test seams ─────────────────────────────────────────────────────────
 /** True when the search box is open. Production code never calls this. */

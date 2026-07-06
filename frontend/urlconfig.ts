@@ -87,9 +87,12 @@ export function filterConfigSearch(search: string): string {
 // of window.location.search: after a live config push, the URL's params are
 // STALE — an exported file must carry the config actually in force. Merge
 // semantics (per-key set, never cleared) mirror the setters themselves: an
-// absent key leaves the previously applied value in force. Values are stored
-// raw-but-whitelisted, exactly what filterConfigSearch(location.search) used
-// to export — the parser downstream is garbage-tolerant either way.
+// absent key leaves the previously applied value in force. Only values that
+// PARSED are recorded (re-encoded from the typed partial, not the raw
+// params): a garbage boolean like animate=banana makes no setter call — the
+// previous value stays in force — so recording it raw would export a config
+// that never was. Enum strings pass through raw; the setters clamp garbage
+// identically on the exported page's boot, so raw stays faithful for them.
 const appliedParams = new URLSearchParams();
 
 /** The accumulated effective config as a "?"-prefixed query string ("" when empty). */
@@ -157,12 +160,19 @@ export function applyUrlConfig(search: string): UrlConfig {
   if (cfg.animate !== undefined) setAnimate(cfg.animate);
   if (cfg.search !== undefined) setSearchConfig(cfg.search);
   if (cfg.syncJumpOnClick !== undefined) setJumpOnClick(cfg.syncJumpOnClick);
-  // Record the whitelisted params for export (see currentConfigSearch).
-  const params = new URLSearchParams(search);
-  for (const key of CONFIG_PARAM_KEYS) {
-    const value = params.get(key);
-    if (value !== null) appliedParams.set(key, value);
-  }
+  // Record the EFFECTIVE params for export (see currentConfigSearch): re-encode
+  // from the parsed partial so unparseable values (which made no setter call)
+  // are never recorded. Booleans re-encode canonically as "1"/"0".
+  const b = (v: boolean) => (v ? "1" : "0");
+  if (cfg.preserveView !== undefined) appliedParams.set("preserve_view", b(cfg.preserveView));
+  if (cfg.highlightMode !== undefined) appliedParams.set("highlight_mode", cfg.highlightMode);
+  if (cfg.animate !== undefined) appliedParams.set("animate", b(cfg.animate));
+  if (cfg.search?.scope !== undefined) appliedParams.set("search_scope", cfg.search.scope);
+  if (cfg.search?.caseSensitive !== undefined)
+    appliedParams.set("search_case", b(cfg.search.caseSensitive));
+  if (cfg.search?.regex !== undefined) appliedParams.set("search_regex", b(cfg.search.regex));
+  if (cfg.syncJumpOnClick !== undefined)
+    appliedParams.set("sync_jump_on_click", b(cfg.syncJumpOnClick));
   return cfg;
 }
 

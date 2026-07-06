@@ -6,7 +6,7 @@ import {
   applyCursorEmphasis,
   reapplyHighlightAfterRender,
 } from "./emphasis";
-import { installSearchHandlers } from "./search-ui";
+import { installSearchHandlers, syncSearchControls } from "./search-ui";
 import { ensureAppStyle } from "./style";
 import {
   showError,
@@ -162,12 +162,16 @@ if (exportPayload !== null) {
       // the SAME whitelisted, garbage-tolerant parser the boot URL uses (the
       // setters clamp; a malformed payload applies nothing), then re-derive
       // the config-sensitive presentation in place: ensureAppStyle re-syncs
-      // the motion gate (animate), and the post-render reapply re-shapes the
-      // live highlight under a new highlight_mode with search precedence and
-      // the cursor echo intact. Gates like preserve_view / jump_on_click are
-      // read at use time and need no re-derive here.
+      // the motion gate (animate), syncSearchControls pushes new search_*
+      // defaults into an already-built search box (whose DOM toggle state
+      // otherwise shadows the config) and re-runs an open search, and the
+      // post-render reapply re-shapes the live highlight under a new
+      // highlight_mode with search precedence and the cursor echo intact.
+      // Gates like preserve_view / jump_on_click are read at use time and
+      // need no re-derive here.
       if (applyConfigObject(msg.config) !== null) {
         ensureAppStyle();
+        syncSearchControls();
         reapplyHighlightAfterRender();
       }
     },

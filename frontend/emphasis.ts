@@ -72,6 +72,16 @@ export function setSearchReapplyHook(hook: () => boolean): void {
   _searchReapplyHook = hook;
 }
 
+// Search-open probe (registered by search-ui.ts, same idiom): while the search
+// box is open, Esc belongs to search (its document-level handler closes the
+// box), so the click-highlight Esc-clear must defer — otherwise Esc with focus
+// on search's scope select or the canvas cleared the selection instead of
+// closing the box. Default false keeps Esc-clear working standalone.
+let _searchOpenProbe: () => boolean = () => false;
+export function setSearchOpenProbe(probe: () => boolean): void {
+  _searchOpenProbe = probe;
+}
+
 // ── Click-to-highlight state ──────────────────────────────────────────────────
 
 // Module-level selection state machine (pure, from interact.ts).
@@ -240,6 +250,11 @@ export function reapplyHighlightAfterRender(): void {
     } catch {
       _clusterModel = null;
     }
+  } else {
+    // No DOT source (seam unregistered / last-good cleared): keeping the
+    // PREVIOUS graph's cluster members would be stale state — fall back to
+    // the SVG-derived no-cluster behavior instead.
+    _clusterModel = null;
   }
   const model = extractModelFromApp();
   _selection.retain(model); // prune nodes gone after live-reload
@@ -280,6 +295,9 @@ export function handleAppClick(e: MouseEvent): void {
 /** Handle an Esc keydown: clear highlighting (search-safe predicate). */
 export function handleHighlightKeydown(e: KeyboardEvent): boolean {
   if (!shouldClearHighlight(e, document.activeElement?.tagName)) return false;
+  // Open search owns Esc: its document-level handler closes the box; the
+  // click selection survives until a SECOND Esc (search now closed) clears it.
+  if (_searchOpenProbe()) return false;
   _selection.clear();
   _clusterAugment = false;
   recomputeAndApplyHighlight();
