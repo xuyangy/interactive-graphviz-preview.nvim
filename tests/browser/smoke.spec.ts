@@ -100,6 +100,19 @@ test("preview renders a real graph and click-highlight works", async ({ page }) 
   await expect(nodeA).toHaveClass(/ig-selected/);
   await expect(nodeB).toHaveClass(/ig-neighbor/);
 
+  // Fit-to-selection (plan item #6): with a-and-neighbors highlighted, `f`
+  // re-frames the view around them — the zoom transform must change (applied
+  // instantly under animate=0). `0` then resets so the rest of the flow sees
+  // the same initial fit it did before this leg.
+  const graphTransform = () =>
+    page.evaluate(() => document.querySelector("#app svg g.graph")?.getAttribute("transform") ?? "");
+  const beforeFit = await graphTransform();
+  await page.keyboard.press("f");
+  await expect.poll(graphTransform).not.toBe(beforeFit);
+  const fitted = await graphTransform();
+  await page.keyboard.press("0");
+  await expect.poll(graphTransform).not.toBe(fitted);
+
   // Esc clears the emphasis — the interaction is live, not a one-way latch.
   await page.keyboard.press("Escape");
   await expect(nodeA).not.toHaveClass(/ig-selected/);

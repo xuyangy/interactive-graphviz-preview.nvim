@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   _setLastGoodDot,
   cursorPanNeeded,
+  fitSelectionInView,
+  handleFitKeydown,
   intersectRects,
   setAnimate,
   viewCenterInViewBox,
@@ -765,6 +767,16 @@ describe("view toolbar (home / zoom-in / zoom-out)", () => {
   test("zoomBy without a live zoom behavior does not throw", () => {
     expect(() => zoomBy(1.4)).not.toThrow();
     expect(() => zoomBy(1 / 1.4)).not.toThrow();
+  });
+
+  test("fit-to-selection without a live zoom behavior is a safe no-op (with and without highlight)", () => {
+    expect(() => fitSelectionInView()).not.toThrow();
+    clickOn(el("g-a").querySelector("ellipse")!); // highlight present
+    expect(() => fitSelectionInView()).not.toThrow();
+    // The keydown path: handled (true) outside a text field, ignored inside one.
+    expect(handleFitKeydown(new KeyboardEvent("keydown", { key: "f" }))).toBe(true);
+    openSearch(); // focuses the search input
+    expect(handleFitKeydown(new KeyboardEvent("keydown", { key: "f" }))).toBe(false);
   });
 
   test("cursorPanNeeded: fully inside is false; crossing any edge is true", () => {

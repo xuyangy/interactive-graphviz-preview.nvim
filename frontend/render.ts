@@ -12,6 +12,11 @@ import { graphviz } from "d3-graphviz";
 // pure `zoomTransform`. Story 5.4 uses them to build the gated render transition.
 import { transition } from "d3-transition";
 import { easeCubicInOut } from "d3-ease";
+// d3-zoom ships transitively inside the d3-graphviz bundle (its zoom behavior
+// IS d3-zoom) — same zero-new-dependency rationale as d3-transition above and
+// viewstate.ts's `zoomTransform` import. zoomIdentity builds the fit-to-
+// selection transform (plan item #6).
+import { zoomIdentity } from "d3-zoom";
 import { createRenderQueue } from "./render-queue";
 import {
   captureViewState,
@@ -237,14 +242,39 @@ export function handleResetKeydown(e: KeyboardEvent): boolean {
 }
 
 /**
- * Install the document-level reset keybinding once. Idempotent: a second call
- * is a no-op (guarded by a flag) so re-imports / HMR don't stack listeners.
+ * Pure predicate: should this keydown trigger fit-to-selection (plan item #6)?
+ * True only for an un-modified `f` when NOT typing in a text field — the same
+ * guard shape as shouldReset, so `f` typed into the search input stays a
+ * literal character.
+ */
+export function shouldFitSelection(e: ResetKeyEvent, activeTag: string | undefined): boolean {
+  if (e.key !== "f") return false;
+  if (activeTag === "INPUT" || activeTag === "TEXTAREA") return false;
+  if (e.ctrlKey || e.metaKey || e.altKey) return false;
+  return true;
+}
+
+/**
+ * Handle a real keydown for the fit-to-selection affordance (`f`).
+ * Returns true when the key was handled (for tests / callers).
+ */
+export function handleFitKeydown(e: KeyboardEvent): boolean {
+  if (!shouldFitSelection(e, document.activeElement?.tagName)) return false;
+  fitSelectionInView();
+  return true;
+}
+
+/**
+ * Install the document-level view keybindings (`0`/`r` reset, `f` fit-to-
+ * selection) once. Idempotent: a second call is a no-op (guarded by a flag)
+ * so re-imports / HMR don't stack listeners.
  */
 let _resetKeyInstalled = false;
 export function installResetKeybinding(): void {
   if (_resetKeyInstalled) return;
   _resetKeyInstalled = true;
   document.addEventListener("keydown", handleResetKeydown);
+  document.addEventListener("keydown", handleFitKeydown);
 }
 
 // The view toolbar (home / zoom-in / zoom-out / exports) lives in toolbar.ts
@@ -402,6 +432,131 @@ function cancelCursorPan(): void {
     if (selection) selection.interrupt("ig-pan");
   } catch {
     // No live selection → no transition to cancel; never break the emphasize path.
+  }
+}
+
+// ── Fit-to-selection (plan item #6, the `f` affordance) ──────────────────────
+// Zoom AND pan the view so the currently highlighted elements — the click
+// selection with its neighbors, or the live search matches (both regimes mark
+// their elements with the same ig-selected/ig-neighbor classes) — fill the
+// visible area. With nothing highlighted, `f` behaves like `0`/`r` (fit the
+// whole graph): one key always answers "frame what I care about right now".
+
+/** Fraction of the visible area the fitted selection may fill (the rest is margin). */
+const FIT_MARGIN = 0.9;
+
+/** The getBBox()-shaped box the fit math works in (input/user space). */
+export interface BBoxLike {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Pure: union of getBBox-shaped boxes; null for an empty list. */
+export function unionBBoxes(boxes: BBoxLike[]): BBoxLike | null {
+  if (boxes.length === 0) return null;
+  let x1 = Infinity;
+  let y1 = Infinity;
+  let x2 = -Infinity;
+  let y2 = -Infinity;
+  for (const b of boxes) {
+    x1 = Math.min(x1, b.x);
+    y1 = Math.min(y1, b.y);
+    x2 = Math.max(x2, b.x + b.width);
+    y2 = Math.max(y2, b.y + b.height);
+  }
+  return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+}
+
+/**
+ * Pure: the d3-zoom transform (k, tx, ty) that centers `bbox` (input/user
+ * space — the space node getBBox() coordinates live in, see
+ * panCursorNodeIntoView) in the visible area at the largest scale that fits it
+ * with FIT_MARGIN, clamped to the behavior's scaleExtent so `f` can never
+ * out-zoom the scroll wheel. The transform maps input space to viewBox units
+ * (x' = k·x + t), so the visible area is converted from CSS px to viewBox
+ * units via the svg rect ↔ viewBox ratio, and its center comes through the
+ * same viewCenterInViewBox the cursor pan uses. Null on any degenerate
+ * geometry (zero-size bbox/view/svg/viewBox — e.g. a non-layout test DOM):
+ * the caller does nothing rather than jumping to a garbage transform.
+ */
+export function fitTransformForBBox(
+  bbox: BBoxLike,
+  view: RectLike,
+  svgRect: RectLike,
+  vb: BBoxLike,
+  scaleExtent: [number, number],
+): { k: number; tx: number; ty: number } | null {
+  if (bbox.width <= 0 || bbox.height <= 0) return null;
+  const svgW = svgRect.right - svgRect.left;
+  const svgH = svgRect.bottom - svgRect.top;
+  const viewW = view.right - view.left;
+  const viewH = view.bottom - view.top;
+  if (svgW <= 0 || svgH <= 0 || viewW <= 0 || viewH <= 0) return null;
+  const p = viewCenterInViewBox(view, svgRect, vb); // also guards vb dims
+  if (p === null) return null;
+  // Visible area in viewBox units (px → vb via the svg rect ↔ viewBox ratio).
+  const viewWVb = (viewW / svgW) * vb.width;
+  const viewHVb = (viewH / svgH) * vb.height;
+  const fit = Math.min(viewWVb / bbox.width, viewHVb / bbox.height) * FIT_MARGIN;
+  const k = Math.max(scaleExtent[0], Math.min(scaleExtent[1], fit));
+  return {
+    k,
+    tx: p[0] - k * (bbox.x + bbox.width / 2),
+    ty: p[1] - k * (bbox.y + bbox.height / 2),
+  };
+}
+
+/**
+ * Fit the view to the current highlight: union the bboxes of every
+ * ig-selected/ig-neighbor group (nodes AND connecting edges — click selection
+ * and search matches alike) and apply the fit transform through the live
+ * d3-zoom behavior's public transform(). Nothing highlighted → reset-to-fit
+ * (the `0`/`r` behavior). Animated through the shared motion gate, on the
+ * SAME "ig-pan" named transition as the cursor pan — one motion voice,
+ * last-wins by construction. No-op before the first render; guarded like
+ * zoomBy/resetZoomToFit so a d3 quirk can never break the keybinding path.
+ */
+export function fitSelectionInView(): void {
+  try {
+    const gv = graphviz("#app");
+    const behavior = gv.zoomBehavior();
+    const selection = gv.zoomSelection();
+    if (!behavior || !selection) return;
+    const emphasized = document.querySelectorAll(
+      "#app svg g.node.ig-selected, #app svg g.node.ig-neighbor, #app svg g.edge.ig-neighbor",
+    );
+    if (emphasized.length === 0) {
+      resetZoomToFit();
+      return;
+    }
+    const svg = selection.node() as SVGSVGElement | null;
+    if (!svg) return;
+    const vb = svg.viewBox?.baseVal;
+    if (!vb) return;
+    const svgRect = svg.getBoundingClientRect();
+    const winRect: RectLike = {
+      left: 0,
+      top: 0,
+      right: document.documentElement.clientWidth,
+      bottom: document.documentElement.clientHeight,
+    };
+    const view = intersectRects(svgRect, winRect);
+    const bbox = unionBBoxes(
+      [...emphasized].map((el) => (el as SVGGraphicsElement).getBBox()),
+    );
+    if (bbox === null) return;
+    const extent: [number, number] =
+      typeof behavior.scaleExtent === "function" ? behavior.scaleExtent() : [0, Infinity];
+    const t = fitTransformForBBox(bbox, view, svgRect, vb, extent);
+    if (t === null) return;
+    const target = animationsEnabled()
+      ? selection.transition("ig-pan").duration(PAN_TRANSITION_MS).ease(easeCubicInOut)
+      : selection;
+    behavior.transform(target, zoomIdentity.translate(t.tx, t.ty).scale(t.k));
+  } catch (err) {
+    console.warn("interactive-graphviz: fit-to-selection failed", err);
   }
 }
 
