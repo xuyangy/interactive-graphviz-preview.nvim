@@ -13,7 +13,8 @@ export type MessageType =
   | "hello"
   | "ack"
   | "node_click"
-  | "emphasize";
+  | "emphasize"
+  | "config_update";
 
 export interface ProtocolMessage {
   type: MessageType;

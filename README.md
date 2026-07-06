@@ -234,12 +234,13 @@ like `case_sensitve` — warn naming the offending key and are ignored. Note tha
 `bind` is **not** a user-settable key — the bind address is controlled
 exclusively by `expose_to_lan` (see Security).
 
-The interactivity keys (`preserve_view`, `highlight_mode`, `animate`, `search`)
-are carried to the browser in the preview URL, so they **apply when a preview
-opens**. An already-open preview does not pick up a changed value live — and
-reloading the tab re-applies the *old* config baked into that tab's URL, not
-your latest `setup()`. To pick up a change, re-open the preview
-(`:GraphvizPreviewStop`, then `:GraphvizPreview`).
+The interactivity keys (`preserve_view`, `highlight_mode`, `animate`,
+`search`, `sync.jump_on_click`) apply to open previews **live**: re-running
+`setup{}` pushes them to every open preview over the existing connection — no
+reopen needed — and a reloaded tab also comes back under the latest pushed
+config. (They still ride the preview URL too, so a preview opened later starts
+with the same values.) Server-level keys (`port`, `expose_to_lan`,
+`heartbeat_ms`) still take effect on the next server start.
 
 The sync keys split across that line: `sync.jump_on_click` rides the preview
 URL like the interactivity keys (applies at preview open; a tab reload

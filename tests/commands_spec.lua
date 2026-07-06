@@ -193,9 +193,25 @@ local function make_config(engine, open_cmd, engines, overrides)
     sync = overrides.sync
       or { jump_on_click = true, highlight_on_cursor = true, cursor_debounce_ms = 150 },
   }
+  local function b01(v)
+    return v and "1" or "0"
+  end
   return {
     get = function()
       return state
+    end,
+    -- Mirrors config.wire_params(): preview_url sources the URL config values
+    -- from it (the same record a config_update message carries).
+    wire_params = function()
+      return {
+        preserve_view = b01(state.preserve_view),
+        highlight_mode = state.highlight_mode,
+        animate = b01(state.animate),
+        search_scope = state.search.scope,
+        search_case = b01(state.search.case_sensitive),
+        search_regex = b01(state.search.regex),
+        sync_jump_on_click = b01(state.sync.jump_on_click),
+      }
     end,
     set_engine = function(next_engine)
       for _, allowed in ipairs(state.engines) do

@@ -48,9 +48,10 @@ M._tokenize_cmd = tokenize_cmd
 -- The interactivity config rides along as query params (always all of them,
 -- even at defaults — deterministic URLs, no absent-vs-default ambiguity).
 -- config validation guarantees every key exists with an enum/boolean value, so
--- the values are URL-safe as-is; booleans travel as 1/0. The frontend parses
--- these at startup and feeds its clamping setters — config applies when a
--- preview opens (re-open to change).
+-- the values are URL-safe as-is; booleans travel as 1/0 (wire_params owns the
+-- encoding — the same values a config_update message carries). The frontend
+-- parses these at startup and feeds its clamping setters; a later re-run
+-- setup{} pushes changes to open previews live via config_update.
 local function preview_url(bufnr)
   local server = require("interactive-graphviz.server")
   local config = require("interactive-graphviz.config")
@@ -61,10 +62,7 @@ local function preview_url(bufnr)
     return nil
   end
 
-  local cfg = config.get()
-  local function b01(v)
-    return v and "1" or "0"
-  end
+  local wp = config.wire_params()
   return string.format(
     "http://127.0.0.1:%d/?sessionId=%d&token=%s"
       .. "&preserve_view=%s&highlight_mode=%s&animate=%s"
@@ -73,13 +71,13 @@ local function preview_url(bufnr)
     port,
     bufnr,
     token,
-    b01(cfg.preserve_view),
-    cfg.highlight_mode,
-    b01(cfg.animate),
-    cfg.search.scope,
-    b01(cfg.search.case_sensitive),
-    b01(cfg.search.regex),
-    b01(cfg.sync.jump_on_click)
+    wp.preserve_view,
+    wp.highlight_mode,
+    wp.animate,
+    wp.search_scope,
+    wp.search_case,
+    wp.search_regex,
+    wp.sync_jump_on_click
   )
 end
 

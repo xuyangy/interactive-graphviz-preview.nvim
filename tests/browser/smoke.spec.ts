@@ -146,4 +146,31 @@ test("preview renders a real graph and click-highlight works", async ({ page }) 
       { timeout: 5_000 },
     )
     .toBe("rgb(212, 212, 212)"); // default stroke="black" remapped to --ig-graph-fg
+
+  // Live config push (plan item #3): a config_update over stdin (what a re-run
+  // setup{} sends) reaches the OPEN page and re-shapes interaction without a
+  // reload — with highlight_mode switched to "single", a click emphasizes only
+  // the clicked node and the neighbor dims instead of lighting up. Click node
+  // d (proven in-viewport above — preserve_view keeps the pre-reload zoom, so
+  // other nodes may sit off-screen) and watch its neighbor c. Poll: the
+  // frame's arrival is async, so re-try the click until the new mode is live.
+  proc.stdin!.write(
+    `${JSON.stringify({
+      type: "config_update",
+      sessionId: 1,
+      config: { highlight_mode: "single" },
+    })}\n`,
+  );
+  const nodeC = page.locator("g.node", { has: page.locator('title:text-is("c")') });
+  await expect
+    .poll(
+      async () => {
+        await page.keyboard.press("Escape");
+        await nodeD.click();
+        return (await nodeC.getAttribute("class")) ?? "";
+      },
+      { timeout: 5_000 },
+    )
+    .toContain("ig-dimmed");
+  await expect(nodeD).toHaveClass(/ig-selected/);
 });

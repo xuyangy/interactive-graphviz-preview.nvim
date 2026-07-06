@@ -1,7 +1,11 @@
 import type { ProtocolMessage } from "./protocol";
 import { createWebSocketClient } from "./ws";
 import { queueRender, installResetKeybinding } from "./render";
-import { installInteractionHandlers, applyCursorEmphasis } from "./emphasis";
+import {
+  installInteractionHandlers,
+  applyCursorEmphasis,
+  reapplyHighlightAfterRender,
+} from "./emphasis";
 import { installSearchHandlers } from "./search-ui";
 import { ensureAppStyle } from "./style";
 import {
@@ -15,7 +19,7 @@ import { installViewToolbar } from "./toolbar";
 import { readExportPayload, hasExportMarker } from "./export";
 import { isBlankDot } from "./dot";
 import { setNodeClickSender } from "./sync";
-import { applyUrlConfig } from "./urlconfig";
+import { applyConfigObject, applyUrlConfig } from "./urlconfig";
 
 // Static export mode: an exported single-file page (saveInteractiveHtml)
 // carries `window.__igExport = {dot, engine, search}`. When a valid payload
@@ -152,6 +156,20 @@ if (exportPayload !== null) {
       // touches `v`, never queues a render (emphasize is transient last-wins).
       const nodeId = msg.nodeId;
       if (typeof nodeId === "string" || nodeId === null) applyCursorEmphasis(nodeId);
+    },
+    onConfigUpdate(msg) {
+      // Plan item #3 — live config push from a re-run setup{}: apply through
+      // the SAME whitelisted, garbage-tolerant parser the boot URL uses (the
+      // setters clamp; a malformed payload applies nothing), then re-derive
+      // the config-sensitive presentation in place: ensureAppStyle re-syncs
+      // the motion gate (animate), and the post-render reapply re-shapes the
+      // live highlight under a new highlight_mode with search precedence and
+      // the cursor echo intact. Gates like preserve_view / jump_on_click are
+      // read at use time and need no re-derive here.
+      if (applyConfigObject(msg.config) !== null) {
+        ensureAppStyle();
+        reapplyHighlightAfterRender();
+      }
     },
     // session_closed is stash/log-only until Story 1.7.
   });

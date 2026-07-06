@@ -673,3 +673,71 @@ describe("config.setup — open_cmd validation", function()
     assert.truthy(warn_calls[1]:find("open_cmd", 1, true))
   end)
 end)
+
+describe("config.wire_params — wire encoding shared by URL and config_update", function()
+  before_each(reset)
+
+  it("defaults encode as the documented 7-key record (all string values)", function()
+    config.setup({})
+    local wp = config.wire_params()
+    assert.are.same({
+      preserve_view = "1",
+      highlight_mode = "bidirectional",
+      animate = "1",
+      search_scope = "both",
+      search_case = "0",
+      search_regex = "0",
+      sync_jump_on_click = "1",
+    }, wp)
+  end)
+
+  it("booleans encode as 1/0; enums pass through validated", function()
+    config.setup({
+      preserve_view = false,
+      highlight_mode = "upstream",
+      animate = false,
+      search = { scope = "edges", case_sensitive = true, regex = true },
+      sync = { jump_on_click = false, highlight_on_cursor = true, cursor_debounce_ms = 150 },
+    })
+    local wp = config.wire_params()
+    assert.are.same({
+      preserve_view = "0",
+      highlight_mode = "upstream",
+      animate = "0",
+      search_scope = "edges",
+      search_case = "1",
+      search_regex = "1",
+      sync_jump_on_click = "0",
+    }, wp)
+  end)
+end)
+
+describe("setup() pushes config_update to open previews (plan item #3)", function()
+  before_each(reset)
+
+  after_each(function()
+    package.loaded["interactive-graphviz.server"] = nil
+    package.loaded["interactive-graphviz"] = nil
+  end)
+
+  it("init.setup stores config first, then calls server.push_config exactly once", function()
+    local push_calls = 0
+    local animate_at_push
+    package.loaded["interactive-graphviz.server"] = {
+      push_config = function()
+        push_calls = push_calls + 1
+        -- Ordering: by the time the push fires, the NEW options must already
+        -- be stored (push_config reads config.wire_params() at send time).
+        animate_at_push = require("interactive-graphviz.config").get().animate
+        return true
+      end,
+    }
+    package.loaded["interactive-graphviz"] = nil
+    local ig = require("interactive-graphviz")
+
+    ig.setup({ animate = false })
+
+    assert.are.equal(1, push_calls)
+    assert.are.equal(false, animate_at_push)
+  end)
+end)

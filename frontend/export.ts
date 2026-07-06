@@ -6,7 +6,7 @@
 // remains the only module that imports d3-graphviz.
 
 import { lastGoodRenderState } from "./render";
-import { filterConfigSearch } from "./urlconfig";
+import { currentConfigSearch } from "./urlconfig";
 
 /**
  * Serialize the live rendered graph as a standalone SVG document string, or
@@ -83,11 +83,11 @@ export interface ExportPayload {
   /** Layout engine; defaults to "dot" when absent/invalid in the payload. */
   engine: string;
   /**
-   * The preview URL's query string at export time — filtered down to the
-   * interactivity config params only (filterConfigSearch), so the exported
-   * page re-applies the SAME setup() config through the existing
-   * applyUrlConfig path while the live session's sessionId/token never
-   * enter the file.
+   * The interactivity config in force at export time as a whitelisted query
+   * string (currentConfigSearch: the boot URL's config params overlaid with
+   * every live config_update), so the exported page re-applies the SAME
+   * effective config through the existing applyUrlConfig path while the live
+   * session's sessionId/token never enter the file.
    */
   search: string;
 }
@@ -185,10 +185,12 @@ export async function saveInteractiveHtml(): Promise<void> {
     const payload: ExportPayload = {
       dot,
       engine,
-      // Whitelist-filtered: config params only. The raw location.search also
-      // carries sessionId + the per-session auth token, which must never be
-      // written into a shareable file.
-      search: filterConfigSearch(window.location.search),
+      // The EFFECTIVE config, not window.location.search: urlconfig.ts
+      // accumulates the whitelisted params across the boot URL and every
+      // live config_update, so an export after a live push carries the
+      // config actually in force. The whitelist also keeps sessionId + the
+      // per-session auth token out of the shareable file, as before.
+      search: currentConfigSearch(),
     };
     const bundleScript = document.querySelector<HTMLScriptElement>("script[src]");
     if (!bundleScript) return;

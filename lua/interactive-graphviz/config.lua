@@ -366,6 +366,29 @@ function M.get()
   return M.options
 end
 
+-- The 7 interactivity params in wire encoding ("1"/"0" booleans, enum strings)
+-- — the SINGLE source for both channels that carry config to the browser: the
+-- preview URL (commands.lua preview_url) and the config_update message
+-- (server.push_config). Always all 7 keys, even at defaults (deterministic; no
+-- absent-vs-default ambiguity). The key names ARE the wire contract: the
+-- Lua↔TS contract test (frontend/urlparam-contract.test.ts) pins them against
+-- urlconfig.ts, and its scan expects the table-entry indentation below.
+function M.wire_params()
+  local function b01(v)
+    return v and "1" or "0"
+  end
+  local o = M.options
+  return {
+    preserve_view = b01(o.preserve_view),
+    highlight_mode = o.highlight_mode,
+    animate = b01(o.animate),
+    search_scope = o.search.scope,
+    search_case = b01(o.search.case_sensitive),
+    search_regex = b01(o.search.regex),
+    sync_jump_on_click = b01(o.sync.jump_on_click),
+  }
+end
+
 function M.set_engine(engine)
   if type(engine) ~= "string" or not has_engine(engine) then
     return false,

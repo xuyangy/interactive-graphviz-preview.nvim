@@ -244,6 +244,26 @@ function M.close_session(bufnr)
   M.send({ type = "session_close", sessionId = bufnr })
 end
 
+-- Push the current interactivity config to every open session's preview
+-- (config_update). Called by setup() on re-configuration so live previews
+-- apply the new interactivity keys without a reopen. Never spawns a server:
+-- with no server (first-run setup) or no open sessions this is a silent
+-- no-op — the config still reaches the browser on the next preview open via
+-- the URL params. Returns true when at least one message was dispatched.
+function M.push_config()
+  if not state.handle then
+    return false
+  end
+  local wp = config.wire_params()
+  local pushed = false
+  for bufnr in pairs(session.active) do
+    if M.send({ type = "config_update", sessionId = bufnr, config = wp }) then
+      pushed = true
+    end
+  end
+  return pushed
+end
+
 -- Graceful shutdown: send `shutdown`, then close stdin so the server sees EOF.
 -- Correctness (no-orphan) never depends on this running — EOF/heartbeat cover it.
 function M.shutdown()

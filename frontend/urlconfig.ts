@@ -82,6 +82,27 @@ export function filterConfigSearch(search: string): string {
   return out.length > 0 ? `?${out}` : "";
 }
 
+// The effective config params, accumulated across every apply (boot URL,
+// then each config_update). Export (saveInteractiveHtml) reads this instead
+// of window.location.search: after a live config push, the URL's params are
+// STALE — an exported file must carry the config actually in force. Merge
+// semantics (per-key set, never cleared) mirror the setters themselves: an
+// absent key leaves the previously applied value in force. Values are stored
+// raw-but-whitelisted, exactly what filterConfigSearch(location.search) used
+// to export — the parser downstream is garbage-tolerant either way.
+const appliedParams = new URLSearchParams();
+
+/** The accumulated effective config as a "?"-prefixed query string ("" when empty). */
+export function currentConfigSearch(): string {
+  const out = appliedParams.toString();
+  return out.length > 0 ? `?${out}` : "";
+}
+
+/** Reset the applied-config accumulator. Tests only. */
+export function _resetAppliedConfig(): void {
+  for (const key of [...appliedParams.keys()]) appliedParams.delete(key);
+}
+
 /** Map exactly "1"/"0" to true/false; absent or garbage → undefined (no call). */
 function parseBoolParam(value: string | null): boolean | undefined {
   if (value === "1") return true;
@@ -136,5 +157,30 @@ export function applyUrlConfig(search: string): UrlConfig {
   if (cfg.animate !== undefined) setAnimate(cfg.animate);
   if (cfg.search !== undefined) setSearchConfig(cfg.search);
   if (cfg.syncJumpOnClick !== undefined) setJumpOnClick(cfg.syncJumpOnClick);
+  // Record the whitelisted params for export (see currentConfigSearch).
+  const params = new URLSearchParams(search);
+  for (const key of CONFIG_PARAM_KEYS) {
+    const value = params.get(key);
+    if (value !== null) appliedParams.set(key, value);
+  }
   return cfg;
+}
+
+/**
+ * Apply a config_update message's `config` payload (plan item #3): a record of
+ * the SAME param names/encodings the preview URL carries, produced by the Lua
+ * side's config.wire_params(). Re-encodes the whitelisted string entries as a
+ * query string and funnels through applyUrlConfig, so the two Lua→browser
+ * config channels share one parser, one clamping path, and one export
+ * accumulator. Returns the applied partial, or null for a non-object payload
+ * (malformed frame — apply nothing rather than half-apply garbage).
+ */
+export function applyConfigObject(config: unknown): UrlConfig | null {
+  if (typeof config !== "object" || config === null || Array.isArray(config)) return null;
+  const params = new URLSearchParams();
+  for (const key of CONFIG_PARAM_KEYS) {
+    const value = (config as Record<string, unknown>)[key];
+    if (typeof value === "string") params.set(key, value);
+  }
+  return applyUrlConfig(`?${params.toString()}`);
 }

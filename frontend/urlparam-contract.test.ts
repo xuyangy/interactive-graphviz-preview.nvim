@@ -85,6 +85,23 @@ describe("Lua <-> TS URL-param contract", () => {
     expect([...luaEmitted].sort()).toEqual([...tsParsed].sort());
   });
 
+  test("config.lua wire_params() emits the same param names (config_update channel)", async () => {
+    // Plan item #3: the SECOND Lua→browser config channel — a config_update
+    // message carrying wire_params() as its `config` record, parsed on the TS
+    // side by applyConfigObject through the same CONFIG_PARAM_KEYS whitelist.
+    // A key drift here silently stops that param from live-updating.
+    const config = await read(CONFIG_LUA);
+    const start = config.indexOf("function M.wire_params()");
+    expect(start).toBeGreaterThan(-1);
+    const end = config.indexOf("\nend", start); // module-level end at column 0
+    const body = config.slice(start, end);
+    const wireKeys = new Set<string>();
+    for (const m of body.matchAll(/^    ([a-z_]+) = /gm)) {
+      wireKeys.add(m[1]!);
+    }
+    expect([...wireKeys].sort()).toEqual(CONFIG_PARAMS);
+  });
+
   test("config.lua defaults resolve to the same frontend defaults via urlconfig.ts", async () => {
     const config = await read(CONFIG_LUA);
     const luaDefaults = {

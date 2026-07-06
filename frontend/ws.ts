@@ -8,6 +8,8 @@ export interface WebSocketClientHandlers {
   onSessionClosed?: (msg: ProtocolMessage) => void;
   /** Story 6.3 — cursor-echo emphasis: nodeId string emphasizes, null clears. */
   onEmphasize?: (msg: ProtocolMessage) => void;
+  /** Plan item #3 — live config push: msg.config carries the URL-param record. */
+  onConfigUpdate?: (msg: ProtocolMessage) => void;
   onMessage?: (msg: ProtocolMessage) => void;
   /**
    * Fired whenever the live connection opens (true) or drops (false). The
@@ -169,6 +171,9 @@ export function createWebSocketClient(
           break;
         case "emphasize":
           handlers.onEmphasize?.(msg);
+          break;
+        case "config_update":
+          handlers.onConfigUpdate?.(msg);
           break;
         default:
           // Unrecognized inbound type: ignored (channel stays warm).

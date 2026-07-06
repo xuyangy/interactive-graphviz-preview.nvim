@@ -561,4 +561,95 @@ describe("message protocol + WebSocket relay", () => {
       proc.kill();
     }
   }, 20000);
+
+  // --- Plan item #3: live config push (config_update) ---
+
+  test("contract round-trip: config_update Lua stdin -> server -> WS envelope is structurally identical", async () => {
+    const { proc, ready } = await spawnServer();
+    try {
+      const { ws, received } = await openSocket(ready.port);
+      ws.send(JSON.stringify({ type: "hello", sessionId: 5, token: ready.token }));
+      await sleep(100);
+
+      // Exactly what server.push_config sends: the 7 wire params, all strings.
+      const sent = {
+        type: "config_update",
+        sessionId: 5,
+        config: {
+          preserve_view: "1",
+          highlight_mode: "upstream",
+          animate: "0",
+          search_scope: "nodes",
+          search_case: "1",
+          search_regex: "0",
+          sync_jump_on_click: "1",
+        },
+      };
+      writeLine(proc, sent);
+      await sleep(250);
+
+      expect(received.length).toBe(1);
+      const got = received[0]!;
+      // One identical envelope on the stdin->WS hop — byte-shape preserved.
+      expect(JSON.stringify(got)).toBe(JSON.stringify(sent));
+      expect(got.type).toBe("config_update");
+      expect(Object.keys(got).sort()).toEqual(["config", "sessionId", "type"]);
+      expect(got).not.toHaveProperty("v"); // config messages never carry `v`
+      ws.close();
+    } finally {
+      proc.kill();
+    }
+  }, 20000);
+
+  test("config_update with malformed/non-contract payloads is not relayed", async () => {
+    const { proc, ready } = await spawnServer();
+    try {
+      const { ws, received } = await openSocket(ready.port);
+      ws.send(JSON.stringify({ type: "hello", sessionId: 5, token: ready.token }));
+      await sleep(100);
+
+      writeLine(proc, { type: "config_update", sessionId: 5 }); // no config
+      writeLine(proc, { type: "config_update", sessionId: 5, config: null });
+      writeLine(proc, { type: "config_update", sessionId: 5, config: ["animate"] });
+      writeLine(proc, { type: "config_update", sessionId: 5, config: "animate=1" });
+      writeLine(proc, { type: "config_update", sessionId: 5, config: {}, v: 9 }); // extra key
+      await sleep(250);
+      expect(received.length).toBe(0);
+
+      const valid = { type: "config_update", sessionId: 5, config: { animate: "1" } };
+      writeLine(proc, valid);
+      await sleep(250);
+      expect(received.length).toBe(1);
+      expect(JSON.stringify(received[0])).toBe(JSON.stringify(valid));
+      ws.close();
+    } finally {
+      proc.kill();
+    }
+  }, 20000);
+
+  test("config_update replay: a later hello receives the last config BEFORE the render replay", async () => {
+    const { proc, ready } = await spawnServer();
+    try {
+      // Config pushed (twice — only the LAST must replay) and a render relayed
+      // BEFORE any browser connects.
+      writeLine(proc, { type: "session_open", sessionId: 7 });
+      writeLine(proc, { type: "config_update", sessionId: 7, config: { animate: "1" } });
+      writeLine(proc, { type: "config_update", sessionId: 7, config: { animate: "0" } });
+      writeLine(proc, { type: "render", v: 1, sessionId: 7, engine: "dot", dot: "digraph {}" });
+      await sleep(200);
+
+      const { ws, received } = await openSocket(ready.port);
+      ws.send(JSON.stringify({ type: "hello", sessionId: 7, token: ready.token }));
+      await sleep(250);
+
+      // Order matters: the replayed render must already run under the pushed
+      // config (e.g. animate off must gate the replay's transition).
+      expect(received.length).toBe(2);
+      expect(received[0]).toMatchObject({ type: "config_update", config: { animate: "0" } });
+      expect(received[1]).toMatchObject({ type: "render", v: 1 });
+      ws.close();
+    } finally {
+      proc.kill();
+    }
+  }, 20000);
 });

@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { applyUrlConfig, filterConfigSearch, parseUrlConfig } from "./urlconfig";
+import {
+  _resetAppliedConfig,
+  applyConfigObject,
+  applyUrlConfig,
+  currentConfigSearch,
+  filterConfigSearch,
+  parseUrlConfig,
+} from "./urlconfig";
 import { getPreserveView, setPreserveView } from "./viewstate";
 import { _resetHighlightMode, getHighlightMode } from "./interact";
 import { _resetSearchConfig, getSearchConfig } from "./search";
@@ -19,6 +26,7 @@ afterEach(() => {
   _resetSearchConfig();
   setAnimate(true);
   _resetSync();
+  _resetAppliedConfig();
 });
 
 describe("parseUrlConfig (pure)", () => {
@@ -160,5 +168,94 @@ describe("filterConfigSearch (export-time credential stripping)", () => {
 
   test("never throws on a malformed query string", () => {
     expect(() => filterConfigSearch("?&&==&%%%&token")).not.toThrow();
+  });
+});
+
+describe("applyConfigObject (config_update payload, plan item #3)", () => {
+  test("a wire_params-shaped record applies through the same clamping setters", () => {
+    const cfg = applyConfigObject({
+      preserve_view: "0",
+      highlight_mode: "upstream",
+      animate: "0",
+      search_scope: "nodes",
+      search_case: "1",
+      search_regex: "1",
+      sync_jump_on_click: "0",
+    });
+    expect(cfg).not.toBeNull();
+    expect(getPreserveView()).toBe(false);
+    expect(getHighlightMode()).toBe("upstream");
+    expect(getAnimate()).toBe(false);
+    expect(getSearchConfig()).toEqual({ scope: "nodes", caseSensitive: true, regex: true });
+    expect(getJumpOnClick()).toBe(false);
+  });
+
+  test("non-object payloads apply nothing and return null", () => {
+    setAnimate(false);
+    for (const bad of [null, undefined, "animate=1", 7, ["animate"]]) {
+      expect(applyConfigObject(bad)).toBeNull();
+    }
+    expect(getAnimate()).toBe(false); // untouched
+  });
+
+  test("non-string values and unknown keys are ignored; enum garbage clamps", () => {
+    const cfg = applyConfigObject({
+      animate: 0, // number, not the wire encoding — ignored
+      highlight_mode: "not-a-mode", // clamped by setHighlightMode
+      token: "evil", // not a config param — never applied or recorded
+      search_scope: "edges",
+    });
+    expect(cfg).toEqual({ highlightMode: "not-a-mode", search: { scope: "edges" } });
+    expect(getAnimate()).toBe(true); // untouched default
+    expect(getHighlightMode()).toBe("bidirectional"); // clamped
+    expect(getSearchConfig().scope).toBe("edges");
+    expect(currentConfigSearch()).not.toContain("token");
+  });
+});
+
+describe("currentConfigSearch (export-time effective config)", () => {
+  test("starts empty; accumulates the boot URL's whitelisted params only", () => {
+    expect(currentConfigSearch()).toBe("");
+    applyUrlConfig("?sessionId=3&token=tok-abc&animate=0&highlight_mode=upstream");
+    const params = new URLSearchParams(currentConfigSearch());
+    expect([...params.keys()].sort()).toEqual(["animate", "highlight_mode"]);
+    expect(params.get("animate")).toBe("0");
+    expect(params.get("highlight_mode")).toBe("upstream");
+    // The runtime credentials never enter the accumulator (shareable-file safety).
+    expect(currentConfigSearch()).not.toContain("token");
+    expect(currentConfigSearch()).not.toContain("sessionId");
+  });
+
+  test("a config_update overlays per-key: updated keys change, absent keys survive", () => {
+    applyUrlConfig("?animate=0&highlight_mode=upstream");
+    applyConfigObject({ animate: "1" });
+    const params = new URLSearchParams(currentConfigSearch());
+    expect(params.get("animate")).toBe("1"); // updated
+    expect(params.get("highlight_mode")).toBe("upstream"); // survives
+  });
+
+  test("the exported string round-trips through applyUrlConfig (export boot path)", () => {
+    applyConfigObject({
+      preserve_view: "0",
+      highlight_mode: "downstream",
+      animate: "0",
+      search_scope: "edges",
+      search_case: "1",
+      search_regex: "0",
+      sync_jump_on_click: "0",
+    });
+    const exported = currentConfigSearch();
+    // Reset the live state, then boot "an exported page" from the string.
+    setPreserveView(true);
+    _resetHighlightMode();
+    setAnimate(true);
+    _resetSearchConfig();
+    _resetSync();
+    applyUrlConfig(exported);
+    expect(getPreserveView()).toBe(false);
+    expect(getHighlightMode()).toBe("downstream");
+    expect(getAnimate()).toBe(false);
+    expect(getSearchConfig()).toEqual({ scope: "edges", caseSensitive: true, regex: false });
+    expect(getJumpOnClick()).toBe(false);
   });
 });

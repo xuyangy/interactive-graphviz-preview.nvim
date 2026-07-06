@@ -18,6 +18,7 @@ M.MESSAGE_TYPES = {
   "ack",
   "node_click",
   "emphasize",
+  "config_update",
 }
 
 return M

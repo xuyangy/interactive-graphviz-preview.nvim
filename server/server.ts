@@ -152,6 +152,12 @@ export function main(): number {
         const session = sessions.subscribe(sessionId, ws);
         ws.data.sessionId = sessionId;
         ws.data.subscribed = true;
+        // Replay the latest live-pushed config BEFORE the render replay, so the
+        // replayed render already runs under the pushed config (e.g. a live
+        // animate=false must gate the replay's transition, not arrive after it).
+        if (session.lastConfigUpdate) {
+          safeSend(ws, JSON.stringify(session.lastConfigUpdate));
+        }
         // Replay the last cleanly-relayed render to a browser that connects after
         // the first fan-out (cold-open race). `lastGoodRender` is the last render
         // envelope that was cleanly dispatched by the server (Story 1.6).
@@ -277,6 +283,32 @@ export function main(): number {
           for (const ws of sessions.subscribersOf(message.sessionId)) {
             safeSend(ws, payload);
           }
+        }
+        break;
+      }
+      case "config_update": {
+        // Plan item #3: live interactivity-config push (a re-run Lua setup{}).
+        // Relayed like `emphasize` (exact envelope, single session), but ALSO
+        // stored — a page refresh must come back under the latest pushed
+        // config, not the stale URL params it was opened with (see the replay
+        // in `hello`). `config` stays an opaque object here: the frontend's
+        // whitelisted, clamping parser owns value validation, mirroring how
+        // `render` carries `dot` opaquely.
+        if (typeof message.sessionId === "number") {
+          if (
+            !hasExactlyKeys(message, ["type", "sessionId", "config"]) ||
+            typeof message.config !== "object" ||
+            message.config === null ||
+            Array.isArray(message.config)
+          ) {
+            diag("config_update malformed payload ignored");
+            break;
+          }
+          const payload = JSON.stringify(message); // one JSON object per WS frame
+          for (const ws of sessions.subscribersOf(message.sessionId)) {
+            safeSend(ws, payload);
+          }
+          sessions.setLastConfigUpdate(message.sessionId, message);
         }
         break;
       }

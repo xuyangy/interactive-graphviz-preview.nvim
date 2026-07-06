@@ -28,6 +28,10 @@ export interface Session {
   // rendering. A DOT that triggers a WASM error will be in `lastGoodRender` but
   // NOT in the frontend's `lastGoodDot`.
   lastGoodRender?: ProtocolMessage;
+  // Last relayed config_update envelope — replayed on subscribe (before the
+  // render replay) so a refreshed/late-connecting page runs under the LATEST
+  // live-pushed config, not just the URL params it was opened with.
+  lastConfigUpdate?: ProtocolMessage;
   // Live WebSocket subscribers for this session.
   subscribers: Set<Subscriber>;
 }
@@ -85,6 +89,14 @@ export class SessionRegistry {
     const session = this.sessions.get(sessionId);
     if (session) {
       session.lastGoodRender = render;
+    }
+  }
+
+  /** Store the last relayed config_update envelope for replay on subscribe. */
+  setLastConfigUpdate(sessionId: number, update: ProtocolMessage): void {
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      session.lastConfigUpdate = update;
     }
   }
 }
