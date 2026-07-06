@@ -28,6 +28,30 @@ export interface ProtocolMessage {
 
 export const PROTOCOL_VERSION = 1;
 
+// The `ready{port,token}` announcement the server prints to stdout on startup.
+// Consumed by the Lua plugin and by every test that spawns the real server, so
+// the frame's shape and validation live here rather than being re-declared (and
+// silently drifting) across the test harnesses.
+export interface Ready {
+  type: "ready";
+  port: number;
+  token: string;
+}
+
+export function isReady(value: unknown): value is Ready {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v.type === "ready" &&
+    typeof v.port === "number" &&
+    Number.isInteger(v.port) &&
+    v.port > 0 &&
+    v.port <= 65535 &&
+    typeof v.token === "string" &&
+    v.token.length > 0
+  );
+}
+
 // App-level WebSocket close code (4000-4999 range) sent when a `hello` is
 // rejected for a bad/stale token or session. The token is minted per server
 // start, so this is terminal for the page that sent it: the frontend must NOT

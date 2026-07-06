@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { type ChildProcess, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { isReady, type Ready } from "../../server/protocol";
 
 // Real-browser smoke test — the ONLY automated coverage of the actual WASM
 // layout/render path (everything else runs under happy-dom, which cannot
@@ -13,17 +14,13 @@ import { fileURLToPath } from "node:url";
 
 const SERVER = fileURLToPath(new URL("../../server/server.ts", import.meta.url));
 
-interface Ready {
-  type: string;
-  port: number;
-  token: string;
-}
-
 let proc: ChildProcess;
 let ready: Ready;
 
 // Spawn the real server (same entrypoint the Lua plugin runs) and read its
-// ready{port,token} announcement — mirrors server/relay.test.ts's idiom.
+// ready{port,token} announcement. stdout is the protocol channel, but the test
+// harness is deliberately tolerant of environment/Bun noise before the first
+// protocol frame.
 test.beforeAll(async () => {
   proc = spawn("bun", ["run", SERVER], {
     stdio: ["pipe", "pipe", "ignore"],
@@ -31,16 +28,49 @@ test.beforeAll(async () => {
   });
   ready = await new Promise<Ready>((resolve, reject) => {
     let buf = "";
-    const timer = setTimeout(() => reject(new Error("server never announced ready")), 10_000);
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(new Error("server never announced ready"));
+      }
+    }, 10_000);
+    const finish = (r: Ready) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(r);
+    };
     proc.stdout!.on("data", (chunk: Buffer) => {
       buf += chunk.toString();
-      const nl = buf.indexOf("\n");
-      if (nl >= 0) {
-        clearTimeout(timer);
-        resolve(JSON.parse(buf.slice(0, nl)) as Ready);
+      let nl: number;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        if (!line.trimStart().startsWith("{")) continue;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (isReady(parsed)) finish(parsed);
       }
     });
-    proc.on("error", reject);
+    proc.on("error", (err) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      }
+    });
+    proc.on("exit", (code, signal) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        reject(new Error(`server exited before ready (code=${code}, signal=${signal})`));
+      }
+    });
   });
 });
 

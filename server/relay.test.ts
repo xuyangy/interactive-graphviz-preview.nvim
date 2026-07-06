@@ -1,16 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { WS_CLOSE_AUTH_REJECTED } from "./protocol";
+import { isReady, type Ready, WS_CLOSE_AUTH_REJECTED } from "./protocol";
 
 const SERVER = `${import.meta.dir}/server.ts`;
 
-interface Ready {
-  type: string;
-  port: number;
-  token: string;
-}
-
 // Spawn the real server and read its `ready{port,token}` announcement. Mirrors
-// the supervisor.test.ts live-server idiom; always kill in `finally`.
+// the supervisor.test.ts live-server idiom; always kill in `finally`. If the
+// ready frame never arrives, kill the just-spawned server before rethrowing so
+// a failed startup can't orphan a process holding its listening port.
 async function spawnServer(): Promise<{ proc: Bun.Subprocess; ready: Ready }> {
   const proc = Bun.spawn(["bun", "run", SERVER], {
     stdin: "pipe",
@@ -18,11 +14,19 @@ async function spawnServer(): Promise<{ proc: Bun.Subprocess; ready: Ready }> {
     stderr: "ignore",
     env: { ...process.env, IG_HEARTBEAT_TIMEOUT_MS: "10000" },
   });
-  const ready = JSON.parse(await readFirstLine(proc.stdout!, 8000)) as Ready;
-  return { proc, ready };
+  try {
+    const ready = await readReadyFrame(proc.stdout!, 8000);
+    return { proc, ready };
+  } catch (err) {
+    proc.kill();
+    throw err;
+  }
 }
 
-async function readFirstLine(stream: ReadableStream<Uint8Array>, timeoutMs: number): Promise<string> {
+// Read stdout until the server's `ready` frame arrives, skipping any
+// environment/runtime noise (non-JSON or non-`ready` lines) before it — the same
+// tolerance the browser smoke harness applies to this shared protocol channel.
+async function readReadyFrame(stream: ReadableStream<Uint8Array>, timeoutMs: number): Promise<Ready> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buf = "";
@@ -32,20 +36,31 @@ async function readFirstLine(stream: ReadableStream<Uint8Array>, timeoutMs: numb
       const { value, done } = await reader.read();
       if (done) break;
       buf += decoder.decode(value, { stream: true });
-      const nl = buf.indexOf("\n");
-      if (nl >= 0) return buf.slice(0, nl);
+      let nl: number;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        if (!line.trimStart().startsWith("{")) continue;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (isReady(parsed)) return parsed;
+      }
     }
   } finally {
     reader.releaseLock();
   }
-  throw new Error("no line received before timeout");
+  throw new Error("no ready frame received before timeout");
 }
 
 // Continuing stdout line reader: keeps one reader open on the child's stdout and
 // surfaces NDJSON lines AFTER the `ready` line that spawnServer already consumed.
 // Needed to observe the browser->server->Lua return channel (frames the server
 // writes to stdout in response to inbound WS messages, e.g. a relayed node_click).
-// spawnServer's readFirstLine calls reader.releaseLock() (not cancel) and nothing
+// spawnServer's readReadyFrame calls reader.releaseLock() (not cancel) and nothing
 // else is written to stdout at startup, so a fresh getReader() here loses nothing.
 function makeStdoutLineStream(stream: ReadableStream<Uint8Array>): Record<string, unknown>[] {
   const reader = stream.getReader();

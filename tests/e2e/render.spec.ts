@@ -15,15 +15,12 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { isReady, type Ready } from "../../server/protocol";
 
 const SERVER = `${import.meta.dir}/../../server/server.ts`;
 
-interface Ready {
-  type: string;
-  port: number;
-  token: string;
-}
-
+// Kill the just-spawned server if the ready frame never arrives, so a failed
+// startup can't orphan a process holding its listening port.
 async function spawnServer(): Promise<{ proc: Bun.Subprocess; ready: Ready }> {
   const proc = Bun.spawn(["bun", "run", SERVER], {
     stdin: "pipe",
@@ -31,14 +28,22 @@ async function spawnServer(): Promise<{ proc: Bun.Subprocess; ready: Ready }> {
     stderr: "ignore",
     env: { ...process.env, IG_HEARTBEAT_TIMEOUT_MS: "10000" },
   });
-  const ready = JSON.parse(await readFirstLine(proc.stdout!, 8000)) as Ready;
-  return { proc, ready };
+  try {
+    const ready = await readReadyFrame(proc.stdout!, 8000);
+    return { proc, ready };
+  } catch (err) {
+    proc.kill();
+    throw err;
+  }
 }
 
-async function readFirstLine(
+// Read stdout until the server's `ready` frame arrives, skipping any
+// environment/runtime noise (non-JSON or non-`ready` lines) before it — the same
+// tolerance the browser smoke harness applies to this shared protocol channel.
+async function readReadyFrame(
   stream: ReadableStream<Uint8Array>,
   timeoutMs: number,
-): Promise<string> {
+): Promise<Ready> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buf = "";
@@ -48,13 +53,24 @@ async function readFirstLine(
       const { value, done } = await reader.read();
       if (done) break;
       buf += decoder.decode(value, { stream: true });
-      const nl = buf.indexOf("\n");
-      if (nl >= 0) return buf.slice(0, nl);
+      let nl: number;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        if (!line.trimStart().startsWith("{")) continue;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (isReady(parsed)) return parsed;
+      }
     }
   } finally {
     reader.releaseLock();
   }
-  throw new Error("no line received before timeout");
+  throw new Error("no ready frame received before timeout");
 }
 
 async function openSocket(
