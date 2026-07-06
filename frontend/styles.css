@@ -1,0 +1,102 @@
+/*
+ * styles.css — the ONE stylesheet source for the preview UI (plan item #2).
+ *
+ * Build-time inlined: style.ts imports this file AS TEXT (Bun's
+ * `with { type: "text" }`), so the CSS ships INSIDE the JS bundle and is
+ * injected as a single <style id="ig-style"> element — never a <link> or a
+ * network fetch. That keeps saveInteractiveHtml's single-file export
+ * zero-external-asset for free: the export inlines the one bundle, and the
+ * stylesheet rides along as a string (see the "fully self-contained" contract
+ * in export.ts).
+ *
+ * Motion gating (Story 5.4 AC5): the rules that MOVE — the emphasis
+ * transition and the cursor pulse — are scoped under `html.ig-motion`.
+ * style.ts toggles that class from the single animationsEnabled() predicate
+ * (config gate ∧ ¬prefers-reduced-motion) on every ensureAppStyle() call, so
+ * a runtime setAnimate / reduced-motion flip takes effect without recomposing
+ * stylesheet text. When the class is absent, emphasis is instant and the
+ * cursor outline is static — byte-identical classes, no tween.
+ *
+ * Out of scope here: the overlays (overlays.ts) and the view toolbar
+ * (toolbar.ts) style themselves via element-inline cssText — geometry the
+ * tests assert directly. Theming (plan item #5) can reach them with CSS
+ * variables, which work in inline styles too.
+ */
+
+/* ── Emphasis transition (Story 5.4 AC2/AC5) ─────────────────────────────────
+   Animates the Selected/Neighbor/Dimmed change by transitioning the base
+   opacity + stroke properties, so toggling the ig-* classes (in
+   applyHighlightToDom — UNCHANGED) tweens rather than snaps. Simplest,
+   GPU-cheap, interruptible (no d3 transition for class toggles — NFR-7).
+   150ms: short + interruptible emphasis fade. */
+html.ig-motion #app g.node, html.ig-motion #app g.edge,
+html.ig-motion #app g.node ellipse, html.ig-motion #app g.node polygon, html.ig-motion #app g.node path {
+  transition: opacity 150ms, stroke 150ms, stroke-width 150ms;
+}
+
+/* ── Click/search highlight: Selected / Neighbor / Dimmed (Story 5.2) ──────── */
+#app g.node.ig-dimmed, #app g.edge.ig-dimmed { opacity: 0.15; }
+#app g.node.ig-neighbor, #app g.edge.ig-neighbor { opacity: 1; }
+/* Neighbor = emphasized but distinct from Selected (AC1): a lighter accent
+   stroke so neighbors read as positively highlighted, not merely un-dimmed,
+   while staying visually subordinate to the Selected node's bolder stroke. */
+#app g.node.ig-neighbor ellipse,
+#app g.node.ig-neighbor polygon,
+#app g.node.ig-neighbor path { stroke: #ffcc80; stroke-width: 2px; }
+#app g.node.ig-selected { opacity: 1; }
+#app g.node.ig-selected ellipse,
+#app g.node.ig-selected polygon,
+#app g.node.ig-selected path { stroke: #ff9800; stroke-width: 3px; }
+
+/* ── Cursor echo (Story 6.3) ─────────────────────────────────────────────────
+   The buffer→graph cursor echo: a passive outline in a hue apart from the
+   click/search orange regime. STROKE ONLY, never opacity, so it can never dim
+   anything and sits additively beneath the highlight classes (a search-dimmed
+   node keeps its dim; the outline just rides along). The :not() guards encode
+   the precedence law directly in CSS: when click/search own a node's emphasis
+   (selected/neighbor stroke), the cursor outline yields entirely rather than
+   fighting over the same stroke properties. */
+#app g.node.ig-cursor:not(.ig-selected):not(.ig-neighbor) ellipse,
+#app g.node.ig-cursor:not(.ig-selected):not(.ig-neighbor) polygon,
+#app g.node.ig-cursor:not(.ig-selected):not(.ig-neighbor) path {
+  stroke: #4fc3f7; stroke-width: 3px;
+}
+/* Edge-line emphasis: the cursor on `a -> b` outlines the edge too (its
+   spline + arrowhead), same hue, thinner than the node outline so the ends
+   stay the anchors. Same yield rule: a click/search-owned edge keeps its
+   treatment. Stroke only, like the node rule — never opacity. */
+#app g.edge.ig-cursor:not(.ig-neighbor) path,
+#app g.edge.ig-cursor:not(.ig-neighbor) polygon {
+  stroke: #4fc3f7; stroke-width: 2px;
+}
+
+/* The optional pulse: stroke-opacity only (the outline breathes; the node's
+   fill/element opacity are untouched). Motion-gated like the highlight
+   transition rule — reduced-motion / animate=false gets a static outline. */
+@keyframes ig-cursor-pulse {
+  0%, 100% { stroke-opacity: 1; }
+  50% { stroke-opacity: 0.45; }
+}
+html.ig-motion #app g.node.ig-cursor:not(.ig-selected):not(.ig-neighbor) ellipse,
+html.ig-motion #app g.node.ig-cursor:not(.ig-selected):not(.ig-neighbor) polygon,
+html.ig-motion #app g.node.ig-cursor:not(.ig-selected):not(.ig-neighbor) path,
+html.ig-motion #app g.edge.ig-cursor:not(.ig-neighbor) path,
+html.ig-motion #app g.edge.ig-cursor:not(.ig-neighbor) polygon {
+  animation: ig-cursor-pulse 1.6s ease-in-out infinite;
+}
+
+/* ── Search box (Story 5.3) ──────────────────────────────────────────────── */
+#ig-search-box { position:fixed; top:8px; left:50%; transform:translateX(-50%);
+  background:rgba(30,30,30,0.92); color:#eee; padding:6px 8px; border-radius:6px;
+  font-size:13px; font-family:monospace; z-index:9999; pointer-events:auto;
+  display:flex; align-items:center; gap:8px; box-shadow:0 2px 8px rgba(0,0,0,0.4);
+  /* Cap the centered box so its right edge stays >=48px from the viewport edge
+     on narrow windows — clear of the view toolbar's right column (see
+     VIEW_TOOLBAR_CLEARANCE_PX in overlays.ts); without this the higher-z-index, pointer-events:auto
+     box would capture the toolbar buttons' clicks. */
+  max-width:calc(100vw - 96px); flex-wrap:wrap; }
+#ig-search-box input[type=text] { background:#1b1b1b; color:#eee; border:1px solid #444;
+  border-radius:4px; padding:3px 6px; font-family:monospace; font-size:13px; width:220px; outline:none; }
+#ig-search-box label { display:flex; align-items:center; gap:3px; cursor:pointer; user-select:none; }
+#ig-search-box select { background:#1b1b1b; color:#eee; border:1px solid #444; border-radius:4px; font-size:12px; }
+#ig-search-counter { min-width:48px; text-align:right; color:#cccccc; }

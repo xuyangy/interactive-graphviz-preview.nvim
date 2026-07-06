@@ -39,9 +39,7 @@ import {
   nodeTitleFromClickTarget,
 } from "./graph-dom";
 import { emitNodeClick } from "./sync";
-import { animationsEnabled } from "./motion";
-
-const HIGHLIGHT_TRANSITION_MS = 150; // emphasis fade — short + interruptible (NFR-7)
+import { ensureAppStyle } from "./style";
 
 // ── Injection seams (registered by render.ts / search-ui.ts at module init) ──
 
@@ -87,104 +85,10 @@ let _clusterModel: GraphModel | null = null;
 // whole cluster (members + intra-cluster edges). Documented in Dev Agent Record.
 let _clusterAugment = false;
 
-const STYLE_ID = "ig-highlight-style";
-// The Selected / Neighbor / Dimmed emphasis treatment. Story 5.4 (AC2/AC5)
-// animates the emphasis change by adding a CSS `transition` on the base
-// `#app g.node` / `#app g.edge` opacity + stroke properties, so toggling the
-// `ig-*` classes (in applyHighlightToDom — UNCHANGED) tweens rather than snaps.
-// This is the simplest, GPU-cheap, interruptible approach (no d3 transition for
-// class toggles — NFR-7). It is presentation-only: WHICH classes are set never
-// changes, only how the change is shown. The transition line is gated: when
-// animation is disabled (config off OR reduced-motion) it is omitted so emphasis
-// is instant, byte-identical to today's behavior.
-const HIGHLIGHT_TRANSITION_CSS = `
-#app g.node, #app g.edge,
-#app g.node ellipse, #app g.node polygon, #app g.node path {
-  transition: opacity ${HIGHLIGHT_TRANSITION_MS}ms, stroke ${HIGHLIGHT_TRANSITION_MS}ms, stroke-width ${HIGHLIGHT_TRANSITION_MS}ms;
-}
-`;
-const HIGHLIGHT_BASE_CSS = `
-#app g.node.ig-dimmed, #app g.edge.ig-dimmed { opacity: 0.15; }
-#app g.node.ig-neighbor, #app g.edge.ig-neighbor { opacity: 1; }
-/* Neighbor = emphasized but distinct from Selected (AC1): a lighter accent
-   stroke so neighbors read as positively highlighted, not merely un-dimmed,
-   while staying visually subordinate to the Selected node's bolder stroke. */
-#app g.node.ig-neighbor ellipse,
-#app g.node.ig-neighbor polygon,
-#app g.node.ig-neighbor path { stroke: #ffcc80; stroke-width: 2px; }
-#app g.node.ig-selected { opacity: 1; }
-#app g.node.ig-selected ellipse,
-#app g.node.ig-selected polygon,
-#app g.node.ig-selected path { stroke: #ff9800; stroke-width: 3px; }
-`;
-
-// Story 6.3 — the buffer→graph cursor echo: a passive outline in a hue apart
-// from the click/search orange regime. STROKE ONLY, never opacity, so it can
-// never dim anything and sits additively beneath the highlight classes (a
-// search-dimmed node keeps its dim; the outline just rides along). The
-// :not() guards encode the precedence law directly in CSS: when click/search
-// own a node's emphasis (selected/neighbor stroke), the cursor outline yields
-// entirely rather than fighting over the same stroke properties.
-const CURSOR_EMPHASIS_CSS = `
-#app g.node.ig-cursor:not(.ig-selected):not(.ig-neighbor) ellipse,
-#app g.node.ig-cursor:not(.ig-selected):not(.ig-neighbor) polygon,
-#app g.node.ig-cursor:not(.ig-selected):not(.ig-neighbor) path {
-  stroke: #4fc3f7; stroke-width: 3px;
-}
-/* Edge-line emphasis: the cursor on \`a -> b\` outlines the edge too (its
-   spline + arrowhead), same hue, thinner than the node outline so the ends
-   stay the anchors. Same yield rule: a click/search-owned edge keeps its
-   treatment. Stroke only, like the node rule — never opacity. */
-#app g.edge.ig-cursor:not(.ig-neighbor) path,
-#app g.edge.ig-cursor:not(.ig-neighbor) polygon {
-  stroke: #4fc3f7; stroke-width: 2px;
-}
-`;
-// The optional pulse: stroke-opacity only (the outline breathes; the node's
-// fill/element opacity are untouched). Gated on animationsEnabled() like the
-// highlight transition rule — reduced-motion / animate=false gets a static
-// outline.
-const CURSOR_PULSE_CSS = `
-@keyframes ig-cursor-pulse {
-  0%, 100% { stroke-opacity: 1; }
-  50% { stroke-opacity: 0.45; }
-}
-#app g.node.ig-cursor:not(.ig-selected):not(.ig-neighbor) ellipse,
-#app g.node.ig-cursor:not(.ig-selected):not(.ig-neighbor) polygon,
-#app g.node.ig-cursor:not(.ig-selected):not(.ig-neighbor) path,
-#app g.edge.ig-cursor:not(.ig-neighbor) path,
-#app g.edge.ig-cursor:not(.ig-neighbor) polygon {
-  animation: ig-cursor-pulse 1.6s ease-in-out infinite;
-}
-`;
-
-/** The full highlight stylesheet text for the current animation gate. */
-function highlightCss(): string {
-  // When animation is enabled, prepend the transition rule so class toggles
-  // tween; when disabled, omit it entirely so emphasis is instant (AC5 fallback).
-  return (
-    (animationsEnabled() ? HIGHLIGHT_TRANSITION_CSS : "") +
-    HIGHLIGHT_BASE_CSS +
-    CURSOR_EMPHASIS_CSS +
-    (animationsEnabled() ? CURSOR_PULSE_CSS : "")
-  );
-}
-
-function ensureHighlightStyle(): void {
-  let style = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
-  const css = highlightCss();
-  if (style) {
-    // Re-evaluate the gate each call: the effective animate decision can change
-    // at runtime (setAnimate / a reduced-motion toggle), so keep the injected
-    // transition rule in sync without re-creating the element.
-    if (style.textContent !== css) style.textContent = css;
-    return;
-  }
-  style = document.createElement("style");
-  style.id = STYLE_ID;
-  style.textContent = css;
-  document.head.appendChild(style);
-}
+// The emphasis CSS (Selected/Neighbor/Dimmed treatment, cursor outline + pulse,
+// motion-gated transition) lives in styles.css — one build-time-inlined
+// stylesheet injected via ensureAppStyle() (plan item #2). WHICH classes are
+// set is decided here; HOW they look is decided there.
 
 /**
  * Apply a computed HighlightSet onto the live SVG: selected nodes get the
@@ -197,7 +101,7 @@ function ensureHighlightStyle(): void {
  */
 export function applyHighlightToDom(set: HighlightSet): void {
   if (appElement() === null) return;
-  ensureHighlightStyle();
+  ensureAppStyle();
 
   const anySelected = set.selected.size > 0;
   nodeEntries().forEach(({ el: g, title: name }) => {
@@ -252,7 +156,7 @@ let _cursorEmphasisNode: string | null = null;
 export function applyCursorEmphasis(nodeId: string | null): void {
   _cursorEmphasisNode = typeof nodeId === "string" && nodeId.length > 0 ? nodeId : null;
   if (appElement() === null) return;
-  ensureHighlightStyle();
+  ensureAppStyle();
   const key = _cursorEmphasisNode;
   // Edge pass first: it decides which endpoint nodes the node pass includes.
   let emphasizedEdge: Element | null = null;

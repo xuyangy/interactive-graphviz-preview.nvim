@@ -128,8 +128,8 @@ describe("click-to-highlight DOM emphasis (Story 5.2)", () => {
     expect(classesOf("g-c")).toEqual(["ig-dimmed"]);
     expect(classesOf("g-ab")).toEqual(["ig-neighbor"]);
     expect(classesOf("g-bc")).toEqual(["ig-dimmed"]);
-    // The emphasis stylesheet is injected exactly once.
-    expect(document.getElementById("ig-highlight-style")).not.toBeNull();
+    // The app stylesheet (styles.css via ensureAppStyle) is injected exactly once.
+    expect(document.getElementById("ig-style")).not.toBeNull();
   });
 
   test("background click clears every emphasis class (full opacity)", () => {
@@ -576,7 +576,7 @@ describe("cursor-echo emphasis (Story 6.3)", () => {
 
   test("the stylesheet styles ig-cursor via stroke only — never element opacity", () => {
     applyCursorEmphasis("a"); // forces stylesheet injection
-    const css = document.getElementById("ig-highlight-style")!.textContent ?? "";
+    const css = document.getElementById("ig-style")!.textContent ?? "";
     expect(css).toContain(".ig-cursor");
     expect(css).toContain("stroke: #4fc3f7");
     // No rule may set element opacity for the cursor class (stroke-opacity in

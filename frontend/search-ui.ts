@@ -28,6 +28,7 @@ import {
   type SearchOpts,
 } from "./search";
 import { extractModelFromApp } from "./graph-dom";
+import { ensureAppStyle } from "./style";
 import {
   applyHighlightToDom,
   recomputeAndApplyHighlight,
@@ -98,31 +99,9 @@ function updateSearchCounter(count: number, total: number, valid: boolean): void
   counter.style.color = count === 0 ? "#999999" : "#cccccc";
 }
 
-const SEARCH_STYLE_ID = "ig-search-style";
-const SEARCH_CSS = `
-#${SEARCH_BOX_ID} { position:fixed; top:8px; left:50%; transform:translateX(-50%);
-  background:rgba(30,30,30,0.92); color:#eee; padding:6px 8px; border-radius:6px;
-  font-size:13px; font-family:monospace; z-index:9999; pointer-events:auto;
-  display:flex; align-items:center; gap:8px; box-shadow:0 2px 8px rgba(0,0,0,0.4);
-  /* Cap the centered box so its right edge stays >=48px from the viewport edge
-     on narrow windows — clear of the view toolbar's right column (see
-     VIEW_TOOLBAR_CLEARANCE_PX in overlays.ts); without this the higher-z-index, pointer-events:auto
-     box would capture the toolbar buttons' clicks. */
-  max-width:calc(100vw - 96px); flex-wrap:wrap; }
-#${SEARCH_BOX_ID} input[type=text] { background:#1b1b1b; color:#eee; border:1px solid #444;
-  border-radius:4px; padding:3px 6px; font-family:monospace; font-size:13px; width:220px; outline:none; }
-#${SEARCH_BOX_ID} label { display:flex; align-items:center; gap:3px; cursor:pointer; user-select:none; }
-#${SEARCH_BOX_ID} select { background:#1b1b1b; color:#eee; border:1px solid #444; border-radius:4px; font-size:12px; }
-#ig-search-counter { min-width:48px; text-align:right; color:#cccccc; }
-`;
-
-function ensureSearchStyle(): void {
-  if (document.getElementById(SEARCH_STYLE_ID)) return;
-  const style = document.createElement("style");
-  style.id = SEARCH_STYLE_ID;
-  style.textContent = SEARCH_CSS;
-  document.head.appendChild(style);
-}
+// The search box CSS (#ig-search-box layout, input/label/select treatment,
+// counter) lives in styles.css — one build-time-inlined stylesheet injected
+// via ensureAppStyle() (plan item #2).
 
 /**
  * Build (idempotent) the compact fixed-position search box: a text input, an
@@ -132,7 +111,7 @@ function ensureSearchStyle(): void {
  * focusable input. Returns the box element.
  */
 function buildSearchBox(): HTMLElement {
-  ensureSearchStyle();
+  ensureAppStyle();
   let box = document.getElementById(SEARCH_BOX_ID);
   if (box) return box;
   box = document.createElement("div");
