@@ -110,13 +110,13 @@ body { background: var(--ig-canvas-bg); }
    applyHighlightToDom — UNCHANGED) tweens rather than snaps. Simplest,
    GPU-cheap, interruptible (no d3 transition for class toggles — NFR-7).
    150ms: short + interruptible emphasis fade. */
-html.ig-motion #app g.node, html.ig-motion #app g.edge,
+html.ig-motion #app g.node, html.ig-motion #app g.edge, html.ig-motion #app g.cluster,
 html.ig-motion #app g.node ellipse, html.ig-motion #app g.node polygon, html.ig-motion #app g.node path {
   transition: opacity 150ms, stroke 150ms, stroke-width 150ms;
 }
 
 /* ── Click/search highlight: Selected / Neighbor / Dimmed (Story 5.2) ──────── */
-#app g.node.ig-dimmed, #app g.edge.ig-dimmed { opacity: 0.15; }
+#app g.node.ig-dimmed, #app g.edge.ig-dimmed, #app g.cluster.ig-dimmed { opacity: 0.15; }
 #app g.node.ig-neighbor, #app g.edge.ig-neighbor { opacity: 1; }
 /* Neighbor = emphasized but distinct from Selected (AC1): a lighter accent
    stroke so neighbors read as positively highlighted, not merely un-dimmed,

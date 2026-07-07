@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   Selection,
   buildModelFromTitles,
+  clusterContainsHighlight,
   clusterOf,
   computeClusterHighlightSet,
   computeHighlightSet,
@@ -117,6 +118,123 @@ describe("parseDotModel (DOT → pure graph model)", () => {
     expect([...(members ?? [])].sort()).toEqual(["n1", "n2"]);
     expect(m.nodes.has("n3")).toBe(true);
     expect(members?.has("n3")).toBe(false);
+  });
+
+  test("graphviz clusters by name PREFIX: cluster0/clusterA/bare cluster all count", () => {
+    // The underscore is convention, not syntax — `subgraph cluster0 { a }`
+    // renders a box, so the parser must record its membership too (the
+    // cluster-dim rule treats missing membership as unrelated → would dim a
+    // box whose member is highlighted).
+    const m = parseDotModel(
+      "digraph { subgraph cluster0 { a } subgraph clusterA { b } subgraph cluster { c } }",
+    );
+    expect([...(m.clusters.get("cluster0") ?? [])]).toEqual(["a"]);
+    expect([...(m.clusters.get("clusterA") ?? [])]).toEqual(["b"]);
+    expect([...(m.clusters.get("cluster") ?? [])]).toEqual(["c"]);
+  });
+
+  test("quoted cluster IDs (spaces and all) are clusters; the recorded name is unquoted", () => {
+    const m = parseDotModel('digraph { subgraph "cluster one two" { a; b } }');
+    // The SVG <title> carries the unquoted content — keys must match it.
+    expect([...(m.clusters.get("cluster one two") ?? [])].sort()).toEqual(["a", "b"]);
+  });
+
+  test("a subgraph without the cluster prefix is still NOT a cluster", () => {
+    const m = parseDotModel('digraph { subgraph inner { a } subgraph "not cluster" { b } }');
+    expect(m.clusters.size).toBe(0);
+    expect(m.nodes.has("a")).toBe(true);
+    expect(m.nodes.has("b")).toBe(true);
+  });
+
+  test("cluster=true promotes a named subgraph (graphviz ≥2.50 attribute form)", () => {
+    const m = parseDotModel("digraph { subgraph box { cluster=true; a; b } c }");
+    expect([...(m.clusters.get("box") ?? [])].sort()).toEqual(["a", "b"]);
+    expect(m.clusters.size).toBe(1); // c stays outside
+  });
+
+  test("cluster=true is retroactive and works in the graph-attr bracket form", () => {
+    // Graph attrs describe the subgraph as a whole, so members seen BEFORE the
+    // attribute still count.
+    const m = parseDotModel(
+      'digraph { subgraph box2 { a; graph [style=filled, cluster="true"]; b } }',
+    );
+    expect([...(m.clusters.get("box2") ?? [])].sort()).toEqual(["a", "b"]);
+  });
+
+  test("anonymous cluster=true folds into the enclosing cluster (unmatchable %N title — documented)", () => {
+    const m = parseDotModel("digraph { subgraph cluster_o { { cluster=true; a } b } }");
+    expect(m.clusters.size).toBe(1);
+    expect([...(m.clusters.get("cluster_o") ?? [])].sort()).toEqual(["a", "b"]);
+  });
+
+  test("cluster=false does not demote a prefix-named cluster (graphviz still draws its box)", () => {
+    const m = parseDotModel("digraph { subgraph cluster_x { cluster=false; a } }");
+    expect([...(m.clusters.get("cluster_x") ?? [])]).toEqual(["a"]);
+  });
+
+  test("cluster=true on a NODE or inside a label does not promote the subgraph", () => {
+    const m = parseDotModel(
+      'digraph { subgraph inner { a [cluster=true]; label="cluster=true"; b } }',
+    );
+    expect(m.clusters.size).toBe(0);
+    expect(m.nodes.has("a")).toBe(true);
+  });
+
+  test("prefix case-insensitivity pinned: ClusterA / CLUSTER_X draw boxes in graphviz", () => {
+    // Verified against the bundled WASM build — the NAME prefix is
+    // case-independent even though the cluster ATTR name is not.
+    const m = parseDotModel("digraph { subgraph ClusterA { a } subgraph CLUSTER_X { b } }");
+    expect([...(m.clusters.get("ClusterA") ?? [])]).toEqual(["a"]);
+    expect([...(m.clusters.get("CLUSTER_X") ?? [])]).toEqual(["b"]);
+  });
+
+  test("attr NAME is case-sensitive: Cluster=true draws no box, so no promotion", () => {
+    const m = parseDotModel("digraph { subgraph box { Cluster=true; a } }");
+    expect(m.clusters.size).toBe(0);
+  });
+
+  test("attr VALUE is case-independent, and a quoted name still counts", () => {
+    const m = parseDotModel(
+      'digraph { subgraph up { cluster=TRUE; a } subgraph yes { cluster=yes; b } subgraph q { "cluster"=true; c } }',
+    );
+    expect([...(m.clusters.get("up") ?? [])]).toEqual(["a"]);
+    expect([...(m.clusters.get("yes") ?? [])]).toEqual(["b"]);
+    expect([...(m.clusters.get("q") ?? [])]).toEqual(["c"]);
+  });
+
+  test("cluster=true inside a quoted attr VALUE is string content, not an attribute", () => {
+    // The reviewer's decoy: graphviz draws no box for this (verified) — the
+    // quote-aware token scan must not promote it.
+    const m = parseDotModel('digraph { subgraph inner { graph [label="cluster=true"]; a; b } }');
+    expect(m.clusters.size).toBe(0);
+    // …but a REAL cluster attr next to such a decoy label still promotes.
+    const m2 = parseDotModel(
+      'digraph { subgraph box { graph [label="cluster=true is my name", cluster=true]; a } }',
+    );
+    expect([...(m2.clusters.get("box") ?? [])]).toEqual(["a"]);
+  });
+
+  test("an ESCAPED quote inside a quoted value does not end the token (still no promotion)", () => {
+    // graphviz keeps `cluster=true` as label text here (verified — no box);
+    // a tokenizer that stops at \" would leak it out as a real attribute.
+    const m = parseDotModel(
+      String.raw`digraph { subgraph inner { graph [label="x \" cluster=true"]; a; b } }`,
+    );
+    expect(m.clusters.size).toBe(0);
+    expect(m.nodes.has("a")).toBe(true);
+  });
+
+  test("nesting semantics preserved: plain subgraph folds up, nested cluster keeps its members", () => {
+    const m = parseDotModel(
+      "digraph { subgraph cluster_a { subgraph inner { n1 } subgraph cluster_b { n2 } n3 } }",
+    );
+    expect([...(m.clusters.get("cluster_a") ?? [])].sort()).toEqual(["n1", "n3"]);
+    expect([...(m.clusters.get("cluster_b") ?? [])]).toEqual(["n2"]);
+  });
+
+  test("truncated input (unbalanced braces) still commits accumulated membership", () => {
+    const m = parseDotModel("digraph { subgraph cluster_a { n1");
+    expect([...(m.clusters.get("cluster_a") ?? [])]).toEqual(["n1"]);
   });
 });
 
@@ -285,5 +403,20 @@ describe("unionHighlight", () => {
     const u = unionHighlight(a, b);
     expect(u.nodes.has("a")).toBe(true);
     expect(u.selected.has("a")).toBe(true);
+  });
+});
+
+describe("clusterContainsHighlight (cluster-dim rule)", () => {
+  test("lit when a member is selected or a neighbor; dimmed when disjoint", () => {
+    const set = computeHighlightSet(fixture(), ["a"], "downstream"); // nodes: a + successors
+    expect(clusterContainsHighlight(new Set(["a", "z"]), set)).toBe(true); // member selected
+    expect(clusterContainsHighlight(new Set(["b"]), set)).toBe(true); // member is a neighbor
+    expect(clusterContainsHighlight(new Set(["z", "q"]), set)).toBe(false); // disjoint → dims
+  });
+
+  test("unknown or empty membership counts as unrelated (dims as scenery)", () => {
+    const set = computeHighlightSet(fixture(), ["a"], "single");
+    expect(clusterContainsHighlight(undefined, set)).toBe(false);
+    expect(clusterContainsHighlight(new Set(), set)).toBe(false);
   });
 });

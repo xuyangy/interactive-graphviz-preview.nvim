@@ -19,6 +19,7 @@
 
 import {
   Selection,
+  clusterContainsHighlight,
   computeClusterHighlightSet,
   computeHighlightSet,
   emptyHighlightSet,
@@ -32,6 +33,7 @@ import {
 } from "./interact";
 import {
   appElement,
+  clusterEntries,
   edgeEntries,
   extractModelFromApp,
   invalidateGraphDom,
@@ -131,6 +133,18 @@ export function applyHighlightToDom(set: HighlightSet): void {
     // Edge <title> text is exactly the EdgeKey form (A->B / A--B).
     if (set.edges.has(title)) g.classList.add("ig-neighbor");
     else g.classList.add("ig-dimmed");
+  });
+  // Cluster boxes (subgraph outline + title label) follow their contents: a
+  // cluster dims exactly when all its member nodes dim. Membership comes from
+  // the DOT-parse model — SVG cluster titles only NAME the cluster — refreshed
+  // on the render boundary alongside the Alt+click augment path; with no model
+  // (null before the first render / DOT source gone) the boxes dim as scenery.
+  clusterEntries().forEach(({ el: g, title }) => {
+    g.classList.remove("ig-dimmed");
+    if (!anyHighlight) return;
+    if (!clusterContainsHighlight(_clusterModel?.clusters.get(title), set)) {
+      g.classList.add("ig-dimmed");
+    }
   });
 }
 

@@ -93,7 +93,8 @@ export function emptyModel(): GraphModel {
 // Full DOT is non-trivial (subgraphs, ports, attribute lists, quoted ids,
 // comments). This parser is intentionally pragmatic: it handles the common
 // shapes — `a -> b`, `a -- b`, chained `a -> b -> c`, quoted ids, attribute
-// lists (skipped), line/block comments, and `subgraph cluster_* { ... }` blocks
+// lists (skipped), line/block comments, and cluster blocks (name-prefixed
+// `subgraph cluster* { ... }` or promoted via `cluster=true`)
 // for cluster membership. Documented limitations: ports (`a:p -> b:q`) are
 // reduced to their node id; HTML-like labels and deeply nested non-cluster
 // subgraphs are not modeled beyond their node/edge statements.
@@ -159,39 +160,79 @@ function isKeyword(id: string): boolean {
  * Direction: a `digraph` / `->` edge is directed (drives upstream/downstream);
  * a `graph` / `--` edge is undirected and treats both endpoints as neighbors.
  */
+// One open `{ ... }` scope during the parse. Membership ACCUMULATES on the
+// frame and commits when it closes, because cluster-ness may only become
+// known mid-body (`cluster=true` promotion) — a name test at `{` time is not
+// enough.
+interface SubgraphFrame {
+  /** Subgraph name, or null for anonymous subgraphs / plain braces / the graph body. */
+  name: string | null;
+  /** Cluster-ness: the name prefix at open time, promotable by `cluster=true` inside. */
+  cluster: boolean;
+  /** Node ids seen directly in this scope (plus folded-up child-scope members). */
+  members: Set<string>;
+}
+
 export function parseDotModel(dot: string): GraphModel {
   const model = emptyModel();
   if (!dot || dot.trim().length === 0) return model;
 
   const src = stripComments(dot);
 
-  // Track cluster nesting by scanning subgraph headers and braces. We record,
-  // for each open brace depth, the active cluster name (or null). A node id seen
-  // while a cluster is the innermost active cluster is a member of that cluster.
-  const clusterStack: (string | null)[] = [];
+  // Track subgraph nesting as frames. On close, a NAMED cluster commits its
+  // members to the model; any other frame folds its members into its parent,
+  // so a node inside a plain subgraph still counts toward the nearest
+  // enclosing cluster, while a node in a nested cluster counts only toward
+  // that innermost cluster (the pre-frame semantics, preserved). An anonymous
+  // cluster (`{ cluster=true; ... }`) cannot commit — its rendered SVG
+  // <title> is a graphviz-internal generated name (e.g. "%3") that no
+  // DOT-side parse can predict — so it folds up like a plain subgraph and its
+  // box dims as scenery (documented limitation).
+  const frames: SubgraphFrame[] = [];
+  const closeFrame = () => {
+    const frame = frames.pop();
+    if (!frame) return; // unbalanced `}` in malformed input: nothing to close
+    if (frame.cluster && frame.name !== null) {
+      // Union with any existing set: DOT allows reopening a subgraph by name.
+      const set = model.clusters.get(frame.name) ?? new Set<string>();
+      for (const n of frame.members) set.add(n);
+      model.clusters.set(frame.name, set);
+    } else if (frames.length > 0) {
+      const parent = frames[frames.length - 1];
+      for (const n of frame.members) parent.members.add(n);
+    }
+  };
 
   // Tokenize line-ish by splitting on `;` and newlines but keep edge chains
   // intact by scanning statements. We process the source char-stream with a
   // small statement accumulator that respects braces.
   let i = 0;
   let stmt = "";
-  // Lookahead helper for `subgraph cluster_x {` detection on a brace.
   const flushStatement = (s: string) => {
-    parseStatement(s, model, currentCluster(clusterStack));
+    parseStatement(s, model, frames.length > 0 ? frames[frames.length - 1] : null);
   };
 
   while (i < src.length) {
     const ch = src[i];
     if (ch === "{") {
       // The statement text BEFORE the brace may be a subgraph header.
-      const name = subgraphClusterName(stmt);
+      const name = subgraphName(stmt);
       // Any pending statement before the brace (non-subgraph) is flushed.
       const pre = stmt.replace(/\b(strict\s+)?(di)?graph\b[^{]*$/i, "").trim();
-      if (name === undefined && pre.length > 0 && !/\bsubgraph\b/i.test(stmt)) {
+      if (name === null && pre.length > 0 && !/\bsubgraph\b/i.test(stmt)) {
         flushStatement(pre);
       }
-      clusterStack.push(name ?? null);
-      if (name && !model.clusters.has(name)) model.clusters.set(name, new Set());
+      // Graphviz clusters by NAME PREFIX: any subgraph whose name starts with
+      // "cluster" gets a box (cluster0, clusterA, "cluster a" — the
+      // underscore is convention, not syntax). The prefix test is
+      // case-INSENSITIVE on purpose: ClusterA and CLUSTER_X draw boxes in the
+      // bundled WASM graphviz (verified), even though the cluster ATTR name
+      // is case-sensitive — do not "fix" this to /^cluster/.
+      frames.push({
+        name,
+        cluster: name !== null && /^cluster/i.test(name),
+        members: new Set(),
+      });
       stmt = "";
       i++;
       continue;
@@ -199,7 +240,7 @@ export function parseDotModel(dot: string): GraphModel {
     if (ch === "}") {
       if (stmt.trim().length > 0) flushStatement(stmt);
       stmt = "";
-      clusterStack.pop();
+      closeFrame();
       i++;
       continue;
     }
@@ -224,31 +265,132 @@ export function parseDotModel(dot: string): GraphModel {
     i++;
   }
   if (stmt.trim().length > 0) flushStatement(stmt);
+  // Drain unclosed frames: a successfully RENDERED dot is brace-balanced, but
+  // the parser must not lose membership on truncated/malformed input.
+  while (frames.length > 0) closeFrame();
 
   return model;
 }
 
-function currentCluster(stack: (string | null)[]): string | null {
-  for (let j = stack.length - 1; j >= 0; j--) {
-    if (stack[j] != null) return stack[j];
-  }
+// Returns the subgraph NAME from `stmt` (text before a `{`) when it is a
+// named `subgraph <id>` header; null for anonymous subgraphs, plain braces,
+// or the graph body. Cluster-ness is decided by the caller (name prefix, or a
+// later `cluster=true` promotion). Quoted IDs may carry any characters; the
+// recorded name is the unquoted content, which is what the rendered SVG
+// <title> carries (escaped inner quotes are a documented parser limitation,
+// like HTML-like labels).
+function subgraphName(stmt: string): string | null {
+  const m = stmt.match(/\bsubgraph\s+(?:"([^"]*)"|([A-Za-z0-9_.]+))\s*$/i);
+  if (m) return m[1] ?? m[2];
   return null;
 }
 
-// Returns the cluster name if `stmt` (text before a `{`) is a `subgraph
-// cluster_*` header; undefined otherwise (non-cluster subgraph or graph body).
-function subgraphClusterName(stmt: string): string | undefined {
-  const m = stmt.match(/\bsubgraph\s+("?)(cluster_[A-Za-z0-9_.]*)\1\s*$/i);
-  if (m) return m[2];
-  return undefined;
+// Graphviz's truthy bool spellings for attr VALUES: true/yes or a nonzero
+// integer. Values ARE case-independent (`cluster=TRUE` draws a box — verified
+// against the bundled WASM build), unlike attr names.
+const CLUSTER_TRUE_VALUE = /^(true|yes|[1-9][0-9]*)$/i;
+
+interface AttrToken {
+  text: string;
+  quoted: boolean;
+}
+
+// Tokenize attr-list-ish text into quoted IDs, bare IDs, and `=` operators;
+// separators (brackets, commas, semicolons, whitespace) vanish. Quote-aware
+// so string CONTENT can never masquerade as an attribute —
+// label="cluster=true" yields ONE quoted token, and an escaped quote inside
+// (`label="x \" cluster=true"`) does not end the token early (same skip-2
+// idiom as takeId; graphviz keeps that text as label content — verified). An
+// unterminated quote runs to the end of the text (tolerant, like the rest of
+// this parser).
+function tokenizeAttrText(s: string): AttrToken[] {
+  const tokens: AttrToken[] = [];
+  let i = 0;
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === '"') {
+      let j = i + 1;
+      while (j < s.length && s[j] !== '"') {
+        j += s[j] === "\\" ? 2 : 1; // skip the escaped character
+      }
+      tokens.push({ text: s.slice(i + 1, j), quoted: true });
+      i = j + 1;
+      continue;
+    }
+    if (ch === "=") {
+      tokens.push({ text: "=", quoted: false });
+      i++;
+      continue;
+    }
+    if (/[\s,;[\]]/.test(ch)) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < s.length && !/[\s,;[\]="]/.test(s[j])) j++;
+    tokens.push({ text: s.slice(i, j), quoted: false });
+    i = j;
+  }
+  return tokens;
 }
 
 /**
- * Parse a single statement (no `;`/`{`/`}`) into the model under the active
- * cluster. Handles edge chains (`a -> b -> c`), single node decls, and skips
- * attribute lists `[...]` and bare attribute assignments (`rankdir=LR`).
+ * Does this statement set `cluster=true` on the enclosing subgraph (graphviz
+ * ≥ 2.50)? Two syntactic positions count: the bare graph-scope assignment
+ * (`cluster=true`, quoted name allowed) and the graph attr statement
+ * (`graph [..., cluster=true]` — the `graph` KEYWORD is case-independent). A
+ * node statement like `a [cluster=true]` deliberately does NOT count — the
+ * attribute is documented for subgraphs only.
+ *
+ * Every decision below is verified against the bundled WASM graphviz:
+ * - the attr NAME is case-SENSITIVE (`Cluster=true` draws no box) — unlike
+ *   the name-prefix convention, where `ClusterA` DOES draw a box;
+ * - the VALUE is case-independent (`cluster=TRUE` / `cluster=yes` draw);
+ * - `cluster=true` inside a quoted string is content, not an attribute
+ *   (`graph [label="cluster=true"]` draws no box) — hence the quote-aware
+ *   token scan instead of a regex over raw text;
+ * - promote-only: `cluster=false` never demotes (graphviz still draws the
+ *   box for a prefix-named cluster carrying cluster=false).
  */
-function parseStatement(rawStmt: string, model: GraphModel, cluster: string | null): void {
+function statementSetsClusterTrue(rawStmt: string): boolean {
+  const s = rawStmt.trim();
+  const isBare = /^("?)cluster\1\s*=/.test(s);
+  const isGraphAttr = /^graph\s*\[/i.test(s);
+  if (!isBare && !isGraphAttr) return false;
+  const tokens = tokenizeAttrText(isGraphAttr ? s.replace(/^graph\s*/i, "") : s);
+  for (let k = 0; k + 2 < tokens.length; k++) {
+    const name = tokens[k];
+    const op = tokens[k + 1];
+    const value = tokens[k + 2];
+    if (
+      name.text === "cluster" && // case-sensitive; a quoted "cluster" is the same ID
+      op.text === "=" &&
+      !op.quoted && // a real operator, not a quoted "=" ID
+      (k === 0 || tokens[k - 1].text !== "=" || tokens[k - 1].quoted) && // name, not value, position
+      CLUSTER_TRUE_VALUE.test(value.text)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Parse a single statement (no `;`/`{`/`}`) into the model under the
+ * innermost open subgraph frame. Handles edge chains (`a -> b -> c`), single
+ * node decls, `cluster=true` promotion of the frame, and skips attribute
+ * lists `[...]` and other bare attribute assignments (`rankdir=LR`).
+ */
+function parseStatement(rawStmt: string, model: GraphModel, frame: SubgraphFrame | null): void {
+  // `cluster=true` (bare or `graph [cluster=true]`) promotes the enclosing
+  // subgraph to a cluster — checked BEFORE the attr-list strip below erases
+  // the bracket form. Graph attrs describe the subgraph as a whole, so the
+  // promotion is retroactive over members already accumulated on the frame.
+  if (frame !== null && statementSetsClusterTrue(rawStmt)) {
+    frame.cluster = true;
+    return; // an attribute statement declares no nodes or edges
+  }
+
   // Drop any attribute list `[ ... ]`.
   let s = rawStmt.replace(/\[[^\]]*\]/g, " ").trim();
   if (s.length === 0) return;
@@ -294,14 +436,13 @@ function parseStatement(rawStmt: string, model: GraphModel, cluster: string | nu
 
   if (ids.length === 0) return;
 
-  // Register all nodes (including a single node decl).
+  // Register all nodes (including a single node decl). Cluster membership is
+  // NOT written to the model here: ids accumulate on the innermost frame and
+  // commit (or fold into the parent) when the frame closes, so a later
+  // cluster=true promotion still catches them.
   for (const id of ids) {
     model.nodes.add(id);
-    if (cluster) {
-      const set = model.clusters.get(cluster) ?? new Set<string>();
-      set.add(id);
-      model.clusters.set(cluster, set);
-    }
+    frame?.members.add(id);
   }
 
   // Register edges for each consecutive pair using the operator between them.
@@ -482,6 +623,27 @@ export function computeClusterHighlightSet(model: GraphModel, node: string): Hig
     }
   }
   return result;
+}
+
+/**
+ * Pure: does the cluster's member set contain any highlighted node (selected ∪
+ * neighbors)? The cluster-dim rule: a cluster box (and its title label) dims
+ * exactly when ALL its member nodes dim, so the box always follows its
+ * contents. Unknown membership (undefined — no DOT model available, or a
+ * cluster the parser didn't see) counts as unrelated: the box dims with the
+ * rest of the scenery. Membership is what parseDotModel records (innermost
+ * cluster only), so a nested parent whose only lit content sits in a child
+ * cluster dims — a known limitation, same membership semantics as Alt+click.
+ */
+export function clusterContainsHighlight(
+  members: ReadonlySet<string> | undefined,
+  set: HighlightSet,
+): boolean {
+  if (!members) return false;
+  for (const m of members) {
+    if (set.nodes.has(m) || set.selected.has(m)) return true;
+  }
+  return false;
 }
 
 /** Union of two highlight sets (selected ∪ selected, nodes ∪ nodes, edges ∪ edges). */

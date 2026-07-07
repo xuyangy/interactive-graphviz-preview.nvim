@@ -133,7 +133,15 @@ are emphasized while everything else dims. Which neighbors light up follows the
 
 Shift + click adds more nodes to the highlight set, Alt + click also lights up
 the whole cluster a node belongs to, and `Esc` (or a click on the empty canvas)
-clears everything back to full opacity. Highlighting survives live-reload: it is
+clears everything back to full opacity. Subgraph (cluster) boxes follow their
+contents: a box and its title dim together with its member nodes, and stay at
+full opacity while any *direct* member is highlighted. Both cluster forms work
+— `cluster`-prefixed names and `cluster=true` subgraphs — with two
+limitations: an *anonymous* `{ cluster=true; … }` box always dims as
+background (its rendered name is graphviz-internal and can't be matched), and
+a nested parent cluster dims when its only highlighted content sits inside a
+child cluster (membership is innermost-only, the same rule Alt+click cluster
+highlighting uses). Highlighting survives live-reload: it is
 re-applied to the new render as long as the selected nodes still exist.
 
 Press `f` to zoom and pan the view to frame the highlighted set — handy after

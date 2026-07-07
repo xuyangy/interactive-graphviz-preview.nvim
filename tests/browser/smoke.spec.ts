@@ -83,11 +83,21 @@ test("preview renders a real graph and click-highlight works", async ({ page }) 
   // sends them (:GraphvizPreview order). Written before the page connects —
   // the server replays lastGoodRender on a valid hello, so this is not a race.
   proc.stdin!.write(`${JSON.stringify({ type: "session_open", sessionId: 1 })}\n`);
+  // Every node lives in a cluster so the cluster-dim rule is observable on a
+  // REAL graphviz SVG: clicking a lights b (neighbor) but not c, so a's and
+  // b's boxes must stay lit while c's dims with its only member. The lit pair
+  // covers both ways graphviz decides cluster-ness — the DIM direction cannot
+  // discriminate (a parser miss also dims): cluster0 is deliberately
+  // underscore-less (clustering is by name PREFIX), and x has no prefix at
+  // all, promoted via the cluster=true attribute (graphviz ≥2.50). The
+  // DOT-side membership parse must agree with both or a lit box dims wrongly.
   proc.stdin!.write(
     `${JSON.stringify({
       type: "render",
       sessionId: 1,
-      dot: "digraph { a -> b; b -> c }",
+      dot:
+        "digraph { subgraph cluster0 { a } subgraph x { cluster=true; b } " +
+        "subgraph cluster_y { c } a -> b; b -> c }",
       engine: "dot",
       v: 1,
     })}\n`,
@@ -129,6 +139,18 @@ test("preview renders a real graph and click-highlight works", async ({ page }) 
   await nodeA.click();
   await expect(nodeA).toHaveClass(/ig-selected/);
   await expect(nodeB).toHaveClass(/ig-neighbor/);
+
+  // Cluster boxes follow their contents: cluster0 holds the selected a and x
+  // holds the lit neighbor b → both stay at full opacity; cluster_y's only
+  // member c is dimmed → the box + title dim with it (this was the bug:
+  // subgraph boxes never dimmed).
+  const clusterSel = page.locator("g.cluster", { has: page.locator('title:text-is("cluster0")') });
+  const clusterNbr = page.locator("g.cluster", { has: page.locator('title:text-is("x")') });
+  const clusterFar = page.locator("g.cluster", { has: page.locator('title:text-is("cluster_y")') });
+  await expect(clusterFar).toHaveClass(/ig-dimmed/);
+  await expect(clusterSel).not.toHaveClass(/ig-dimmed/);
+  await expect(clusterNbr).not.toHaveClass(/ig-dimmed/);
+  expect(await clusterFar.evaluate((el) => getComputedStyle(el).opacity)).toBe("0.15");
 
   // Fit-to-selection (plan item #6): with a-and-neighbors highlighted, `f`
   // re-frames the view around them — the zoom transform must change (applied

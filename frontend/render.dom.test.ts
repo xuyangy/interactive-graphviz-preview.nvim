@@ -63,6 +63,7 @@ import {
   serializeGraphSvg,
 } from "./export";
 import { _resetSync, setJumpOnClick, setNodeClickSender } from "./sync";
+import { _resetHighlightMode, setHighlightMode } from "./interact";
 
 // Story 5.2/5.3/5.4 — the live DOM emphasis path (applyHighlightToDom,
 // handleAppClick delegation, recomputeAndApplyHighlight, cluster augment,
@@ -80,7 +81,7 @@ import { _resetSync, setJumpOnClick, setNodeClickSender } from "./sync";
 const FIXTURE_SVG = `
 <svg width="100" height="100">
   <g class="graph">
-    <g class="cluster"><title>cluster_g</title><polygon></polygon></g>
+    <g class="cluster" id="g-cluster"><title>cluster_g</title><polygon></polygon></g>
     <g class="node" id="g-a"><title>a</title><ellipse></ellipse><text>a</text></g>
     <g class="node" id="g-b"><title>b</title><ellipse></ellipse><text>b</text></g>
     <g class="node" id="g-c"><title>c</title><ellipse></ellipse><text>c</text></g>
@@ -120,6 +121,7 @@ afterEach(() => {
   _resetSearchState();
   _resetSearchConfig();
   _resetHighlightState();
+  _resetHighlightMode();
   _setLastGoodDot(null);
   _resetSync();
   clearError(0);
@@ -220,6 +222,40 @@ describe("click-to-highlight DOM emphasis (Story 5.2)", () => {
     _reapplyHighlightAfterRender();
     clickOn(el("g-a").querySelector("ellipse")!, { altKey: true });
     expect(classesOf("g-c")).toEqual(["ig-dimmed"]); // no phantom cluster_g
+  });
+
+  test("cluster box follows its members: lit while a member is emphasized, dimmed when unrelated", () => {
+    _setLastGoodDot(FIXTURE_DOT);
+    _reapplyHighlightAfterRender();
+
+    // A member (a ∈ cluster_g) is selected — the box + its title stay lit.
+    clickOn(el("g-a").querySelector("ellipse")!);
+    expect(classesOf("g-cluster")).toEqual([]);
+
+    // Single mode, non-member selected: NO member of cluster_g is emphasized —
+    // the box dims (the reported bug: subgraph box + title never dimmed).
+    setHighlightMode("single");
+    clickOn(el("g-b").querySelector("ellipse")!);
+    expect(classesOf("g-cluster")).toEqual(["ig-dimmed"]);
+
+    // A member reached as a NEIGHBOR also keeps the box lit (bidirectional b
+    // lights a and c — both cluster_g members).
+    setHighlightMode("bidirectional");
+    clickOn(el("g-b").querySelector("ellipse")!);
+    expect(classesOf("g-cluster")).toEqual([]);
+
+    // Clearing restores full opacity on the box like everything else.
+    clickOn(document.getElementById("app")!.querySelector("svg")!);
+    expect(classesOf("g-cluster")).toEqual([]);
+  });
+
+  test("without a cluster model, an engaged highlight dims cluster boxes as scenery", () => {
+    // No DOT source → no membership info (SVG cluster titles only NAME the
+    // cluster) — a box whose relation is unknowable dims with the rest.
+    clickOn(el("g-a").querySelector("ellipse")!);
+    expect(classesOf("g-cluster")).toEqual(["ig-dimmed"]);
+    clickOn(document.getElementById("app")!.querySelector("svg")!);
+    expect(classesOf("g-cluster")).toEqual([]);
   });
 });
 
