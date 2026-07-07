@@ -8,7 +8,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   _setLastGoodDot,
   cursorPanNeeded,
+  fitGraphInView,
   fitSelectionInView,
+  handleFitGraphKeydown,
   handleFitKeydown,
   intersectRects,
   setAnimate,
@@ -760,12 +762,12 @@ describe("view toolbar (home / zoom-in / zoom-out)", () => {
   // and the button code paths are guarded no-ops before the first real render
   // (no zoom behavior exists under happy-dom — exactly the pre-render state).
 
-  test("install creates the toolbar with exactly 5 buttons, each with an icon and a tooltip", () => {
+  test("install creates the toolbar with exactly 6 buttons, each with an icon and a tooltip", () => {
     installViewToolbar();
     const bar = _viewToolbarElement();
     expect(bar).not.toBeNull();
     const buttons = bar!.querySelectorAll("button");
-    expect(buttons.length).toBe(5);
+    expect(buttons.length).toBe(6);
     for (const btn of buttons) {
       expect((btn.getAttribute("title") ?? "").length).toBeGreaterThan(0);
       // Each button carries an inline SVG icon that inherits the button color
@@ -778,17 +780,18 @@ describe("view toolbar (home / zoom-in / zoom-out)", () => {
     // The tooltips name the gesture twins (the discoverability contract).
     const titles = [...buttons].map((b) => b.getAttribute("title") ?? "");
     expect(titles[0]).toContain("0 or r");
-    expect(titles[1]).toContain("Zoom in");
-    expect(titles[2]).toContain("Zoom out");
-    expect(titles[3]).toContain("Save as SVG");
-    expect(titles[4]).toContain("interactive HTML");
+    expect(titles[1]).toContain("Shift+F");
+    expect(titles[2]).toContain("Zoom in");
+    expect(titles[3]).toContain("Zoom out");
+    expect(titles[4]).toContain("Save as SVG");
+    expect(titles[5]).toContain("interactive HTML");
   });
 
-  test("double install is idempotent — still one toolbar, 5 buttons", () => {
+  test("double install is idempotent — still one toolbar, 6 buttons", () => {
     installViewToolbar();
     installViewToolbar();
     expect(document.querySelectorAll("#ig-view-toolbar").length).toBe(1);
-    expect(_viewToolbarElement()!.querySelectorAll("button").length).toBe(5);
+    expect(_viewToolbarElement()!.querySelectorAll("button").length).toBe(6);
   });
 
   test("clicking every button before any render is a silent no-op (no throw)", () => {
@@ -811,6 +814,18 @@ describe("view toolbar (home / zoom-in / zoom-out)", () => {
     expect(handleFitKeydown(new KeyboardEvent("keydown", { key: "f" }))).toBe(true);
     openSearch(); // focuses the search input
     expect(handleFitKeydown(new KeyboardEvent("keydown", { key: "f" }))).toBe(false);
+  });
+
+  test("fit-graph-to-window without a live zoom behavior is a safe no-op", () => {
+    expect(() => fitGraphInView()).not.toThrow();
+    // The keydown path: handled (true) outside a text field, ignored inside one.
+    expect(handleFitGraphKeydown(new KeyboardEvent("keydown", { key: "F", shiftKey: true }))).toBe(
+      true,
+    );
+    openSearch(); // focuses the search input
+    expect(handleFitGraphKeydown(new KeyboardEvent("keydown", { key: "F", shiftKey: true }))).toBe(
+      false,
+    );
   });
 
   test("cursorPanNeeded: fully inside is false; crossing any edge is true", () => {
@@ -996,13 +1011,13 @@ describe("save-as-interactive-HTML export (view toolbar)", () => {
     expect(hasExportMarker()).toBe(true);
   });
 
-  test("an exported page's toolbar omits the save-as-HTML button (4 buttons)", () => {
+  test("an exported page's toolbar omits the save-as-HTML button (5 buttons)", () => {
     (window as unknown as { __igExport?: unknown }).__igExport = PAYLOAD;
     installViewToolbar();
     const titles = [..._viewToolbarElement()!.querySelectorAll("button")].map(
       (b) => b.getAttribute("title") ?? "",
     );
-    expect(titles.length).toBe(4);
+    expect(titles.length).toBe(5);
     expect(titles.some((t) => t.includes("interactive HTML"))).toBe(false);
     // The SVG export stays available inside an exported page.
     expect(titles.some((t) => t.includes("Save as SVG"))).toBe(true);

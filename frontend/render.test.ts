@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   fitTransformForBBox,
+  relaxScaleExtentForFit,
+  shouldFitGraph,
   shouldFitSelection,
   shouldReset,
   unionBBoxes,
@@ -78,6 +80,32 @@ describe("shouldFitSelection (fit-to-selection `f` gesture)", () => {
   });
 });
 
+describe("shouldFitGraph (fit-graph-to-window `Shift+F` gesture)", () => {
+  test("triggers for `F` (Shift produces the capital — no shiftKey check needed)", () => {
+    expect(shouldFitGraph({ key: "F" }, undefined)).toBe(true);
+  });
+
+  test("does not trigger for lowercase `f` (that key belongs to fit-to-selection)", () => {
+    expect(shouldFitGraph({ key: "f" }, undefined)).toBe(false);
+    expect(shouldFitGraph({ key: "g" }, undefined)).toBe(false);
+  });
+
+  test("does not trigger while typing (a Shift+F in the search input is a literal)", () => {
+    expect(shouldFitGraph({ key: "F" }, "INPUT")).toBe(false);
+    expect(shouldFitGraph({ key: "F" }, "TEXTAREA")).toBe(false);
+  });
+
+  test("does not trigger when a non-shift modifier is held (so e.g. Cmd+Shift+F stays free)", () => {
+    expect(shouldFitGraph({ key: "F", metaKey: true }, undefined)).toBe(false);
+    expect(shouldFitGraph({ key: "F", ctrlKey: true }, undefined)).toBe(false);
+    expect(shouldFitGraph({ key: "F", altKey: true }, undefined)).toBe(false);
+  });
+
+  test("still triggers over a non-text focused element (e.g. a BUTTON)", () => {
+    expect(shouldFitGraph({ key: "F" }, "BUTTON")).toBe(true);
+  });
+});
+
 describe("unionBBoxes (fit-to-selection bbox math)", () => {
   test("empty list is null; a single box is itself", () => {
     expect(unionBBoxes([])).toBeNull();
@@ -139,5 +167,26 @@ describe("fitTransformForBBox (fit-to-selection transform math)", () => {
     const t = fitTransformForBBox({ x: 0, y: 0, width: 100, height: 100 }, viewHalf, svgHalf, VB, EXTENT)!;
     // Visible area in vb units is the full 1000×500 again → same fit as 1:1.
     expect(t.k).toBeCloseTo(4.5);
+  });
+
+  test("a floor-free extent lets a huge bbox fit below the wheel's lower bound", () => {
+    // The fit affordances pass [0, ceiling] so a large graph in a small window
+    // (raw fit 0.045 here, below d3-graphviz's default 0.1 floor) still fits whole.
+    const huge = { x: 0, y: 0, width: 20000, height: 500 };
+    expect(fitTransformForBBox(huge, VIEW, SVG, VB, EXTENT)!.k).toBe(0.1); // clamped
+    const t = fitTransformForBBox(huge, VIEW, SVG, VB, [0, EXTENT[1]])!;
+    expect(t.k).toBeCloseTo((1000 / 20000) * 0.9); // 0.045 — the true fit
+  });
+});
+
+describe("relaxScaleExtentForFit (fit vs the wheel's zoom floor)", () => {
+  test("a fit below the floor lowers the floor to the fit scale; ceiling untouched", () => {
+    expect(relaxScaleExtentForFit([0.1, 10], 0.045)).toEqual([0.045, 10]);
+  });
+
+  test("a fit within the extent returns the SAME extent (reference — callers skip the behavior call)", () => {
+    const extent: [number, number] = [0.1, 10];
+    expect(relaxScaleExtentForFit(extent, 0.5)).toBe(extent);
+    expect(relaxScaleExtentForFit(extent, 0.1)).toBe(extent); // exactly at the floor: no relax needed
   });
 });

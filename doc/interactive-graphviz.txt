@@ -53,12 +53,15 @@ INTERACTIVITY KEYS                     *interactive-graphviz-interactivity*
 Browser view controls ~
     In the preview, the view is driven by mouse gestures — scroll wheel to
     zoom, double-click to zoom in, Shift+double-click to zoom out, click+drag
-    to pan, `0` or `r` to reset the view to fit the viewport. A toolbar at
-    the top-right offers the same as buttons: a home icon to reset-to-fit
+    to pan, `0` or `r` to reset the view to fit the viewport, `Shift+F` to
+    fit the whole graph into the current window (recomputed live, so it is
+    the one to reach for after resizing the browser window). A toolbar at
+    the top-right offers the same as buttons: a home icon to reset-to-fit,
+    a fit icon (corner brackets) to fit the graph to the window
     and +/- magnifier icons to zoom, plus a download icon that saves the
     graph as `graph.svg` — exported as currently rendered (zoom/pan
     included; reset the view first for the full graph), with any transient
-    click/cursor emphasis stripped. A fifth icon saves a self-contained
+    click/cursor emphasis stripped. A sixth icon saves a self-contained
     interactive `graph.html` (~1 MB): it opens offline and keeps zoom/pan,
     click-highlight, `/` search and the SVG export working, re-rendering
     the graph fresh when opened. Neovim-linked features (jump-on-click,

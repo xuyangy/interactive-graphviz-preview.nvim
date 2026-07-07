@@ -143,6 +143,19 @@ test("preview renders a real graph and click-highlight works", async ({ page }) 
   await page.keyboard.press("0");
   await expect.poll(graphTransform).not.toBe(fitted);
 
+  // Fit-graph-to-window (`Shift+F`): unlike `0` — which replays the transform
+  // frozen at render time — the whole-graph fit is recomputed from the LIVE
+  // window geometry, so it is the affordance that answers a browser resize.
+  // Shrink the window: the same key must land on a NEW transform. A second
+  // Shift+F at the restored size re-fits, leaving every node in-viewport for
+  // the legs below.
+  const beforeResize = await graphTransform();
+  await page.setViewportSize({ width: 640, height: 400 });
+  await page.keyboard.press("Shift+F");
+  await expect.poll(graphTransform).not.toBe(beforeResize);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.keyboard.press("Shift+F");
+
   // Esc clears the emphasis — the interaction is live, not a one-way latch.
   await page.keyboard.press("Escape");
   await expect(nodeA).not.toHaveClass(/ig-selected/);
@@ -235,4 +248,35 @@ test("preview renders a real graph and click-highlight works", async ({ page }) 
   await expect(page.locator("#app svg g.node")).toHaveCount(4); // last good graph restored
   await expect(nodeD).toHaveClass(/ig-selected/, { timeout: 5_000 });
   await expect(nodeC).toHaveClass(/ig-dimmed/);
+
+  // Full-graph fit beats the wheel's zoom floor: an 80-node chain in a
+  // 500×300 window needs a scale far below d3-graphviz's default 0.1 lower
+  // scaleExtent — Shift+F must relax the floor and land the ENTIRE graph
+  // inside the window, not clamp and leave most of it off-screen.
+  const chain = Array.from({ length: 80 }, (_, i) => `n${i}`).join(" -> ");
+  proc.stdin!.write(
+    `${JSON.stringify({
+      type: "render",
+      sessionId: 1,
+      dot: `digraph { ${chain} }`,
+      engine: "dot",
+      v: 4,
+    })}\n`,
+  );
+  await expect(page.locator("#app svg g.node")).toHaveCount(80, { timeout: 20_000 });
+  await page.setViewportSize({ width: 500, height: 300 });
+  await page.keyboard.press("Shift+F");
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const r = document.querySelector("#app svg g.graph")!.getBoundingClientRect();
+        return (
+          r.left >= -1 &&
+          r.top >= -1 &&
+          r.right <= window.innerWidth + 1 &&
+          r.bottom <= window.innerHeight + 1
+        );
+      }),
+    )
+    .toBe(true);
 });

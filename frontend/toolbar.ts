@@ -1,13 +1,14 @@
-// toolbar.ts — the fixed view toolbar (home / zoom-in / zoom-out / save-SVG /
-// save-HTML) at the top-right. Extracted from render.ts as pure code motion
-// (plan item #1a): the buttons only CALL the d3-touching code paths
-// (resetZoomToFit / zoomBy, imported from render.ts) — render.ts remains the
-// only module that imports d3-graphviz. Each button wraps the SAME code path
-// its gesture twin uses: home → resetZoomToFit() (the `0`/`r` handler), zoom
+// toolbar.ts — the fixed view toolbar (home / fit / zoom-in / zoom-out /
+// save-SVG / save-HTML) at the top-right. Extracted from render.ts as pure
+// code motion (plan item #1a): the buttons only CALL the d3-touching code
+// paths (resetZoomToFit / fitGraphInView / zoomBy, imported from render.ts) —
+// render.ts remains the only module that imports d3-graphviz. Each button
+// wraps the SAME code path its gesture twin uses: home → resetZoomToFit()
+// (the `0`/`r` handler), fit → fitGraphInView() (the `Shift+F` handler), zoom
 // in/out → the live d3-zoom behavior's public scaleBy — the mechanism behind
 // d3-zoom's own scroll/double-click gestures. No parallel zoom implementation.
 
-import { resetZoomToFit, zoomBy } from "./render";
+import { fitGraphInView, resetZoomToFit, zoomBy } from "./render";
 import { isStaticExportPage, saveGraphSvg, saveInteractiveHtml } from "./export";
 
 const VIEW_TOOLBAR_ID = "ig-view-toolbar";
@@ -27,6 +28,16 @@ const ICON_HOME =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 40 595.28 640" width="16" height="16" aria-hidden="true">' +
   '<path fill="currentColor" d="M477.38,403.76L328.27,245a44,44,0,0,0-64-.22l-151.36,159a41,41,0,0,0-10.75,27.67V605.09a41,41,0,0,0,41,41H214a24.4,24.4,0,0,0,24.4-24.4V542h113.4v79.68a24.4,24.4,0,0,0,24.4,24.4h70.9a41,41,0,0,0,41-41V431.44A41,41,0,0,0,477.38,403.76Z"/>' +
   '<path fill="currentColor" d="M509.59,397.39L323.83,196.74a40,40,0,0,0-58.63-.08L83.09,392.29a40,40,0,0,1-56.53,2h0a40,40,0,0,1-2-56.53L265.36,79.07a40,40,0,0,1,58.63.08L568.3,343a40,40,0,0,1-2.18,56.53h0A40,40,0,0,1,509.59,397.39Z"/>' +
+  "</svg>";
+// Hand-drawn in the same coordinate scale/stroke weight as the icons below:
+// four corner brackets framing a center dot — fit the whole graph in the window.
+const ICON_FIT =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 100 595.28 640" width="16" height="16" aria-hidden="true">' +
+  '<path fill="none" stroke="currentColor" stroke-width="50" stroke-linecap="round" d="M117.64,310V210a40,40 0 0 1 40,-40h100"/>' +
+  '<path fill="none" stroke="currentColor" stroke-width="50" stroke-linecap="round" d="M477.64,310V210a40,40 0 0 0 -40,-40h-100"/>' +
+  '<path fill="none" stroke="currentColor" stroke-width="50" stroke-linecap="round" d="M117.64,490V590a40,40 0 0 0 40,40h100"/>' +
+  '<path fill="none" stroke="currentColor" stroke-width="50" stroke-linecap="round" d="M477.64,490V590a40,40 0 0 1 -40,40h-100"/>' +
+  '<circle fill="currentColor" cx="297.64" cy="400" r="60"/>' +
   "</svg>";
 const ICON_ZOOM_IN =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 100 595.28 640" width="16" height="16" aria-hidden="true">' +
@@ -59,7 +70,8 @@ const ICON_HTML_EXPORT =
 
 /**
  * Install the fixed view toolbar at the top-right: home (reset to fit),
- * zoom in, zoom out. Idempotent via DOM id guard (not a module flag) so it
+ * fit graph to window, zoom in, zoom out. Idempotent via DOM id guard (not a
+ * module flag) so it
  * can be reinstalled after the body is rebuilt. Attached to <body>, outside
  * #app, so d3-graphviz re-renders never touch it.
  */
@@ -98,6 +110,7 @@ export function installViewToolbar(): void {
   };
 
   addButton(ICON_HOME, "Reset view to fit (0 or r)", () => resetZoomToFit());
+  addButton(ICON_FIT, "Fit graph to window (Shift+F)", () => fitGraphInView());
   addButton(ICON_ZOOM_IN, "Zoom in (scroll up / double-click)", () => zoomBy(ZOOM_BUTTON_FACTOR));
   addButton(ICON_ZOOM_OUT, "Zoom out (scroll down / Shift+double-click)", () =>
     zoomBy(1 / ZOOM_BUTTON_FACTOR),
