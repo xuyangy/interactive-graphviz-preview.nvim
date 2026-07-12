@@ -180,6 +180,79 @@ export function applyHighlightToDom(set: HighlightSet): void {
 // contend.
 let _cursorEmphasisNode: string | null = null;
 
+// The cursor glow is a real SVG <filter> referenced from styles.css via
+// filter:url(#ig-cursor-glow) — NOT a CSS drop-shadow() function chain, which
+// WebKit does not reliably render on SVG elements (Safari showed no glow at
+// all in v0.12.0). The def rides in its own zero-size carrier <svg> on <body>
+// (url(#) resolves document-wide), NEVER inside the rendered graph svg:
+// a foreign <defs> there breaks d3-graphviz's re-render data join ("Cannot
+// read properties of undefined (reading 'key')" surfaced as a bogus DOT parse
+// error), and outside the graph it also survives re-renders and stays out of
+// the save-as-SVG export without scrubbing. Hidden via width/height 0, NOT
+// display:none — Firefox ignores filter defs inside display:none subtrees.
+// The filter is static by design: styles.css animates only stroke-width (the
+// Firefox CPU fix), and the glow swells with the widening stroke for free.
+const GLOW_CARRIER_ID = "ig-cursor-glow-defs";
+const SVG_NS = "http://www.w3.org/2000/svg";
+function ensureCursorGlowFilter(): void {
+  if (document.getElementById(GLOW_CARRIER_ID)) return;
+  const carrier = document.createElementNS(SVG_NS, "svg");
+  carrier.setAttribute("id", GLOW_CARRIER_ID);
+  carrier.setAttribute("aria-hidden", "true");
+  carrier.setAttribute("style", "position:absolute;width:0;height:0;overflow:hidden");
+  const defs = document.createElementNS(SVG_NS, "defs");
+  // Two filters with the same shadows but different regions, because the blur
+  // re-runs over the whole region EVERY animation frame — region area is the
+  // Firefox CPU knob. Node shapes get a tight region: the halo reaches
+  // ~12.5px past the shape's geometric bbox (bloomed stroke/2 + 3·σmax), and
+  // even the smallest default node (~54×36) keeps that inside -25%/-40%
+  // padding. Edge GROUPS need the wide region: their bbox minor dimension can
+  // be as small as the arrowhead (~7px) on a straight spline, so tight
+  // percentages would clip the halo flat along the run — but 400% of small
+  // stays small.
+  for (const [id, x, y, w, h] of [
+    ["ig-cursor-glow", "-25%", "-40%", "150%", "180%"],
+    ["ig-cursor-glow-edge", "-150%", "-150%", "400%", "400%"],
+  ]) {
+    const filter = document.createElementNS(SVG_NS, "filter");
+    filter.setAttribute("id", id);
+    filter.setAttribute("x", x);
+    filter.setAttribute("y", y);
+    filter.setAttribute("width", w);
+    filter.setAttribute("height", h);
+    // ONE feDropShadow, not the old two-layer chain: the filter re-runs every
+    // bloom frame, so each extra blur pass is per-frame CPU (measured ~2×).
+    // σ2.5 ≈ the visual middle of the old 2px+6px pair against the 4px stroke.
+    const shadow = document.createElementNS(SVG_NS, "feDropShadow");
+    shadow.setAttribute("dx", "0");
+    shadow.setAttribute("dy", "0");
+    shadow.setAttribute("stdDeviation", "2.5");
+    shadow.setAttribute("flood-color", "#4fc3f7");
+    shadow.setAttribute("flood-opacity", "1");
+    filter.appendChild(shadow);
+    defs.appendChild(filter);
+  }
+  carrier.appendChild(defs);
+  document.body.appendChild(carrier);
+}
+
+// Pin every running cursor-bloom animation to the same document-timeline
+// origin. Without this the bloom phases drift: a CSS animation starts when its
+// element FIRST matches the rule, so moving the cursor from a node line onto
+// one of that node's edge lines keeps the endpoint's class (no restart) while
+// the edge + other endpoint start fresh — the endpoints then bloom
+// alternately instead of together (v0.12.0 issue #3). startTime 0 makes every
+// element's phase `now mod duration`, identical by construction; re-pinning an
+// already-pinned animation is a no-op. Guarded: happy-dom has no getAnimations.
+function syncCursorBloomPhase(): void {
+  if (typeof document.getAnimations !== "function") return;
+  for (const anim of document.getAnimations()) {
+    if ((anim as CSSAnimation).animationName === "ig-cursor-bloom" && anim.startTime !== 0) {
+      anim.startTime = 0;
+    }
+  }
+}
+
 /**
  * Apply (or clear, with null) the passive cursor emphasis. Last-wins: the
  * stored id is re-asserted on the post-render boundary. An id matching a live
@@ -208,6 +281,7 @@ export function applyCursorEmphasis(nodeId: string | null): void {
   if (appElement() === null) return;
   ensureAppStyle();
   const key = _cursorEmphasisNode;
+  if (key !== null) ensureCursorGlowFilter();
   // Edge pass first: it decides which endpoint nodes the node pass includes.
   let emphasizedEdge: Element | null = null;
   edgeEntries().forEach(({ el: g, title }) => {
@@ -232,6 +306,7 @@ export function applyCursorEmphasis(nodeId: string | null): void {
       g.classList.remove("ig-cursor");
     }
   });
+  syncCursorBloomPhase();
   const panTarget = emphasizedEdge ?? emphasizedNode;
   if (panTarget !== null) _panHooks.panIntoView(panTarget);
   else _panHooks.cancelPan();
